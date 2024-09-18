@@ -41,6 +41,7 @@ from .KernelWriterAssembly import KernelWriterAssembly
 from .SolutionLibrary import MasterSolutionLibrary
 from .SolutionStructs import Solution
 from .CustomYamlLoader import load_logic_gfx_arch
+from .Utilities.Profile import profile
 
 import argparse
 import collections
@@ -1227,7 +1228,7 @@ def validateLibrary(masterLibraries: MasterSolutionLibrary,
 ################################################################################
 # Tensile Create Library
 ################################################################################
-@timing
+@profile
 def TensileCreateLibrary():
   print1("")
   print1(HR)
@@ -1547,7 +1548,6 @@ def TensileCreateLibrary():
 
   print1("# Check if generated files exists.")
 
-  @timing
   def checkFileExistence(files):
     for filePath in files:
       if not os.path.exists(filePath):
