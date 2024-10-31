@@ -123,9 +123,9 @@ def analyzeProblemType( problemType, problemSizeGroups, inputParameters ):
   for i in range(0, len(logicAnalyzer.solutions)):
     s = logicAnalyzer.solutions[i]
     s["SolutionIndex"] = i
-    s["SolutionNameMin"] = Solution.getNameMin(s, solutionMinNaming)
-    s["KernelNameMin"]   = Solution.getNameMin(s, solutionMinNaming, True)
-    print1("(%2u) %s : %s" % (i, Solution.getNameMin(s, solutionMinNaming), Solution.getNameFull(s)))
+    assert s["SolutionNameMin"], "SolutionNameMin should already be set"
+    assert s["KernelNameMin"], "KernelNameMin should already be set"
+    print1("(%2u) %s : %s" % (i, s["SolutionNameMin"], Solution.getNameFull(s)))
 
   if enableTileSelection:
     validSelectionSolutions = SolutionSelectionLibrary.analyzeSolutionSelection(problemType, selectionFileNameList, \
@@ -157,8 +157,9 @@ def analyzeProblemType( problemType, problemSizeGroups, inputParameters ):
       (validSolution, validSolutionInfo) = validSelectionSolution
       selectionSolutionIndex = solutionsStartIndex + i
       selectionSolutionsIds.add(selectionSolutionIndex)
-      validSolution["SolutionNameMin"] = Solution.getNameMin(validSolution, solutionMinNaming)
-      validSolution["KernelNameMin"]   = Solution.getNameMin(validSolution, solutionMinNaming, True)
+
+      assert validSolution["SolutionNameMin"], "SolutionNameMin should already be set"
+      assert validSolution["KernelNameMin"], "KernelNameMin should already be set"
       validSolution["Ideals"] = validSolutionInfo
       selectionSolutions.append(validSolution)
 

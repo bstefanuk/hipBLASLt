@@ -89,8 +89,8 @@ def updateValidSolutions(validSolutions, analyzerSolutions, solutionMinNaming):
     (validSolution, validSolutionInfo) = validSelectionSolution
     selectionSolutionIndex = solutionsStartIndex + i
     selectionSolutionsIds.add(selectionSolutionIndex)
-    validSolution["SolutionNameMin"] = Solution.getNameMin(validSolution, solutionMinNaming)
-    validSolution["KernelNameMin"]   = Solution.getNameMin(validSolution, solutionMinNaming, True)
+    assert validSolution["SolutionNameMin"], "SolutionNameMin should already be set"
+    assert validSolution["KernelNameMin"], "KernelNameMin should already be set"
     validSolution["Ideals"] = validSolutionInfo
     selectionSolutions.append(validSolution)
 

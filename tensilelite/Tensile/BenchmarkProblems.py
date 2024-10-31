@@ -329,6 +329,9 @@ def benchmarkProblemType(problemTypeConfig, problemSizeGroupConfig, problemSizeG
             for i in range(0, len(solutions)):
                 solution = solutions[i]
                 solution["SolutionIndex"] = i
+
+                # Benchmarking stage is conducted in `Tensile`, so this is the initial point of
+                # kernel naming. These names are later stored in the library logic files.
                 solution["SolutionNameMin"] = Solution.getNameMin(solution, solutionMinNaming)
                 solution["KernelNameMin"]   = Solution.getNameMin(solution, solutionMinNaming, True)
         else:
