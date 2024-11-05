@@ -159,7 +159,7 @@ def getAssemblyCodeObjectFiles(kernels, kernelWriterAssembly, outputPath):
               args = kernelWriterAssembly.getLinkCodeObjectArgs(objectFiles, coFile)
               if globalParameters["PrintCodeCommands"]:
                 print(asmDir)
-                print(' '.join(args))
+              print("\n\n\n\n\n\n", ' '.join(args))
               subprocess.check_call(args, cwd=asmDir)
 
           coFiles.append(coFile)
@@ -541,6 +541,7 @@ def writeSolutionsAndKernels(outputPath, CxxCompiler, problemTypes, solutions, k
       else:
         objFilenames.add(base)
         kernel.duplicate = False
+  print(f"FOUND {len(kernels) - len(objFilenames)}")
 
   kIter   = zip(kernels, itertools.repeat(kernelWriterAssembly), itertools.repeat(TensileInstructions()))
   results = Common.ParallelMap2(processKernelSource, kIter, "Generating kernels")
@@ -556,10 +557,12 @@ def writeSolutionsAndKernels(outputPath, CxxCompiler, problemTypes, solutions, k
         print("\nKernel generation failed for kernel: {}".format(kernels[kernIdx]["SolutionIndex"]))
         print(kernels[kernIdx]["SolutionNameMin"])
       removeKernels.append(kernels[kernIdx])
-      kName = Solution.getKeyNoInternalArgs(kernels[kernIdx])
+      # kName = Solution.getKeyNoInternalArgs(kernels[kernIdx])
+      kName = Solution.getPseudoNameFull(kernel)
       if kName not in removeKernelNames:
         removeKernelNames.append(kName)
       removeResults.append(results[kernIdx])
+  print1(f"Removing {len(removeKernels)} kernels")
   if len(removeKernels) > 0 and not errorTolerant:
     printExit("** kernel generation failure **")
   for kern in removeKernels:
@@ -567,7 +570,8 @@ def writeSolutionsAndKernels(outputPath, CxxCompiler, problemTypes, solutions, k
   for solution in Utils.tqdm(solutions, "Finding invalid solutions"):
     solutionKernels = solution.getKernels()
     for kernel in solutionKernels:
-        kName = Solution.getKeyNoInternalArgs(kernel)
+        # kName = Solution.getKeyNoInternalArgs(kernel)
+        kName = Solution.getPseudoNameFull(kernel)
         if kName in removeKernelNames:
           removeSolutions.append(solution)
           break
@@ -1050,27 +1054,45 @@ def writeCMake(outputPath, solutionFiles, kernelFiles, libraryStaticFiles, maste
 ################################################################################
 # Generate Kernel Objects From Solutions
 ################################################################################
-@timing
+# import yaml
 def generateKernelObjectsFromSolutions(solutions):
   # create solution writer and kernel writer
   kernels = []
   kernelHelperObjs = []
+  discardedKernels = []
   kernelNames = set()
   kernelHelperNames = set()
 
+  print("Filtering kernels from solutions... calculating kernel names FULL")
   for solution in solutions:
     solutionKernels = solution.getKernels()
     for kernel in solutionKernels:
-        kName = Solution.getKeyNoInternalArgs(kernel)
+        # for each kernel, we create a new name that has a bunch of M's instead of values
+        # kName = Solution.getKeyNoInternalArgs(kernel)
+        kName = Solution.getPseudoNameFull(kernel)
+        # if we've already visited this kernel, skip it 
+        # but here we also compare the
         if kName not in kernelNames:
             kernels.append(kernel)
             kernelNames.add(kName)
+        else:
+            discardedKernels.append(kernel)
+
     solutionHelperKernels = solution.getHelperKernelObjects()
     kernelHelperObjs += solutionHelperKernels
     for ko in solutionHelperKernels:
       kernelHelperNames.add(ko.getKernelName())
 
   # remove duplicates while preserving order
+  # print("LEN OF KERNELS", len(kernels))
+  # with open("names.yaml", "w") as f:
+  #   output = {
+  #     "kernels": [[str(k), hash(k), k._state["codeObjectFile"]] for k in kernels], 
+  #     "kernelNames": [[str(k), hash(k), k._state["codeObjectFile"]] for k in kernelNames], 
+  #     "discardedKernels": [[str(k), hash(k), k._state["codeObjectFile"]] for k in discardedKernels]
+  #   }
+  #   yaml.dump(output, f)
+  # exit(3)
   kernelHelperObjs = list(dict.fromkeys(kernelHelperObjs))
   return (kernels, kernelHelperObjs, kernelHelperNames)
 
@@ -1422,6 +1444,7 @@ def TensileCreateLibrary():
   solutions, masterLibraries, fullMasterLibrary = generateLogicDataAndSolutions(logicFiles, args)
 
   kernels, kernelHelperObjs, _ = generateKernelObjectsFromSolutions(solutions)
+  print(f"Operating 1 on n kernels: {len(kernels)} and n solutions: {len(solutions)}")
 
   # if any kernels are assembly, append every ISA supported
   kernelWriterAssembly, kernelMinNaming, _ = getSolutionAndKernelWriters(solutions, kernels)
@@ -1467,6 +1490,8 @@ def TensileCreateLibrary():
   for fileName in staticFiles:
     shutil.copy( os.path.join(globalParameters["SourcePath"], fileName), \
       outputPath )
+
+  print(f"Operating 2 on n kernels: {len(kernels)} and n solutions: {len(solutions)}")
 
   # write solutions and kernels
   codeObjectFiles = writeSolutionsAndKernels(outputPath, CxxCompiler, None, solutions,

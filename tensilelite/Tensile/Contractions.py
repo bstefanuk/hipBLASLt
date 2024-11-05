@@ -696,6 +696,7 @@ class Solution:
 
     def __init__(self, **kwargs):
         self.name = None
+        self.kernelName = None
         self.problemType = None
         self.hardwarePredicate = Hardware.HardwarePredicate('TruePred')
         self.problemPredicate = ProblemPredicate('TruePred')

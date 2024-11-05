@@ -22,6 +22,7 @@
 #
 ################################################################################
 
+import re
 from .Common import assignParameterWithDefault, \
                     defaultProblemType, defaultSolution, \
                     defaultInternalSupportParams, \
@@ -71,11 +72,11 @@ def reject(state, *args):
       # In this stage, all solutions in the logic should be valid
       # So if any rejection happens, print the warning for further check
       # This will be done only when --global-parameters=PrintSolutionRejectionReason=True
-      solutionNameMin = state["SolutionNameMin"] if ("SolutionNameMin" in state) else None
+      nameMin = state["SolutionNameMin"] if ("SolutionNameMin" in state) else None
       # if we don't have SolutionNameMin, we simply use the problemTypeName
-      solutionNameMin = str(state["ProblemType"]) if (solutionNameMin == None) else solutionNameMin
+      nameMin = str(state["ProblemType"]) if (nameMin == None) else nameMin
       print("!! Warning: Any rejection of a LibraryLogic is not expected, please check. \
-        SolutionIndex: %d (or SolutionName/ProblemType: %s)"%(solutionIndex, solutionNameMin))
+        SolutionIndex: %d (or SolutionName/ProblemType: %s)"%(solutionIndex, nameMin))
   if state != None:
     state["Valid"] = False
 
@@ -4077,8 +4078,15 @@ class Solution(collections.abc.Mapping):
 
     return state_copy
 
-  @ staticmethod
-  def getNameFull(state):
+  @staticmethod
+  def getPseudoNameFull(state):
+    return state["SolutionPseudoNameMin"]
+
+  @staticmethod
+  def getNameFull(state, recompute=False):
+    if not recompute:
+      return state["SolutionNameMin"]
+
     requiredParameters = {}
     for key in state:
       if key in list(validParameters.keys()):
@@ -4092,12 +4100,31 @@ class Solution(collections.abc.Mapping):
   ########################################
   # Get Name Min
   @ staticmethod
-  def getNameMin(state, requiredParameters, ignoreInternalArgs = False):
+  def getNameMin(state, requiredParameters, ignoreInternalArgs=False, recompute=False):
     if isCustomKernelConfig(state):
       return state["CustomKernelName"]
 
-    components = []
+    if not recompute:
+      assert 'KernelNameMin' in state
+      assert 'SolutionNameMin' in state
 
+      # print("Ignore internal args:", ignoreInternalArgs)
+      # print("KernelNameMin found:", state["KernelNameMin"])
+      
+
+      if ignoreInternalArgs and 'KernelNameMin' in state:
+        if state['KernelNameMin']:
+          return state['KernelNameMin']
+      if not ignoreInternalArgs and 'SolutionNameMin' in state:
+        if state['SolutionNameMin']:
+          return state['SolutionNameMin']
+    printWarning(f"Computing name but it should already be known: {'KernelNameMin' if ignoreInternalArgs else 'SolutionNameMin'}")
+
+
+    # print(state.keys())
+    # exit(1)
+
+    components = []
     backup = state["ProblemType"]["GroupedGemm"]
     if ignoreInternalArgs:
       state["ProblemType"]["GroupedGemm"] = False
@@ -4161,6 +4188,19 @@ class Solution(collections.abc.Mapping):
     requiredParameters["MIWaveTile"] = useWaveTile
     requiredParameters["ThreadTile"] = useThreadTile
 
+    # if ignoreInternalArgs and 'KernelNameMin' in state:
+    #   if state['KernelNameMin'] == "_".join(components):
+    #     print("KernelNameMin OLD AND NEW ARE THE SAME")
+    #   else:
+    #     print("KernelNameMin OLD: ", state["KernelNameMin"], "\n  NEW: ", '_'.join(components))
+
+    # if not ignoreInternalArgs and 'SolutionNameMin' in state:
+    #   if state['SolutionNameMin'] == "_".join(components):
+    #     print("SolutionNameMin OLD AND NEW ARE THE SAME")
+    #   else:
+    #     print("SolutionNameMin OLD: ", state["SolutionNameMin"], "\n  NEW: ", '_'.join(components))
+        # import traceback
+        # traceback.print_stack()
     return '_'.join(components)
 
   ########################################
