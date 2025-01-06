@@ -1,9 +1,9 @@
 import subprocess
-
-from typing import Union
 from pathlib import Path
+from typing import Union
 
 from ..Common import print2
+
 
 def compressCodeObject(
     coPathSrc: Union[Path, str], coPathDest: Union[Path, str], gfx: str, bundler: str

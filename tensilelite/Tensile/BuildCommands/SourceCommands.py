@@ -7,9 +7,20 @@ import subprocess
 from pathlib import Path
 from typing import Iterable, List, Union
 
-from ..Common import globalParameters, print2,  ensurePath, supportedCompiler, ParallelMap2, splitArchs, which
+from ..Common import (
+    ParallelMap2,
+    ensurePath,
+    globalParameters,
+    print2,
+    splitArchs,
+    supportedCompiler,
+    which,
+)
 
-def _compileSourceObjectFile(cmdlineArchs: List[str], cxxCompiler: str, cxxSrcPath: str, objDestPath: str, outputPath: str):
+
+def _compileSourceObjectFile(
+    cmdlineArchs: List[str], cxxCompiler: str, cxxSrcPath: str, objDestPath: str, outputPath: str
+):
     """Compiles a source file into an object file.
 
     Args:
@@ -24,34 +35,44 @@ def _compileSourceObjectFile(cmdlineArchs: List[str], cxxCompiler: str, cxxSrcPa
     Raises:
         RuntimeError: If the compilation command fails.
     """
-    archFlags = ['--offload-arch=' + arch for arch in cmdlineArchs]
+    archFlags = ["--offload-arch=" + arch for arch in cmdlineArchs]
 
-    #TODO(@jichangjichang) Needs to be fixed when Maneesh's change is made available
+    # TODO(@jichangjichang) Needs to be fixed when Maneesh's change is made available
     hipFlags = ["-D__HIP_HCC_COMPAT_MODE__=1"]
     hipFlags.extend(
         ["--genco"] if cxxCompiler == "hipcc" else ["--cuda-device-only", "-x", "hip", "-O3"]
     )
 
-    hipFlags.extend(['-I', outputPath])
-    hipFlags.extend(["-Xoffload-linker", "--build-id=%s"%globalParameters["BuildIdKind"]])
-    hipFlags.append('-std=c++17')
+    hipFlags.extend(["-I", outputPath])
+    hipFlags.extend(["-Xoffload-linker", "--build-id=%s" % globalParameters["BuildIdKind"]])
+    hipFlags.append("-std=c++17")
     if globalParameters["AsanBuild"]:
-      hipFlags.extend(["-fsanitize=address", "-shared-libasan", "-fuse-ld=lld"])
+        hipFlags.extend(["-fsanitize=address", "-shared-libasan", "-fuse-ld=lld"])
     if globalParameters["SaveTemps"]:
-      hipFlags.append('--save-temps')
+        hipFlags.append("--save-temps")
 
-    launcher = shlex.split(os.environ.get('Tensile_CXX_COMPILER_LAUNCHER', ''))
+    launcher = shlex.split(os.environ.get("Tensile_CXX_COMPILER_LAUNCHER", ""))
 
     if os.name == "nt":
-      hipFlags.extend(['-fms-extensions', '-fms-compatibility', '-fPIC', '-Wno-deprecated-declarations'])
+        hipFlags.extend(
+            ["-fms-extensions", "-fms-compatibility", "-fPIC", "-Wno-deprecated-declarations"]
+        )
 
-    args = launcher + [which(cxxCompiler)] + hipFlags + archFlags + [cxxSrcPath, '-c', '-o', objDestPath]
+    args = (
+        launcher
+        + [which(cxxCompiler)]
+        + hipFlags
+        + archFlags
+        + [cxxSrcPath, "-c", "-o", objDestPath]
+    )
 
     try:
-      out = subprocess.check_output(args, stderr=subprocess.STDOUT)
-      print2(f"Output: {out}" if out else "")
+        out = subprocess.check_output(args, stderr=subprocess.STDOUT)
+        print2(f"Output: {out}" if out else "")
     except subprocess.CalledProcessError as err:
-      raise RuntimeError(f"Error compiling source object file: {err.output}\nFailed command: {' '.join(args)}")
+        raise RuntimeError(
+            f"Error compiling source object file: {err.output}\nFailed command: {' '.join(args)}"
+        )
 
 
 def _listTargetTriples(bundler: str, objFile: str) -> List[str]:
@@ -68,11 +89,15 @@ def _listTargetTriples(bundler: str, objFile: str) -> List[str]:
     try:
         listing = subprocess.check_output(args, stderr=subprocess.STDOUT).decode().split("\n")
     except subprocess.CalledProcessError as err:
-        raise RuntimeError(f"Error listing target triples in object files: {err.output}\nFailed command: {' '.join(args)}")
+        raise RuntimeError(
+            f"Error listing target triples in object files: {err.output}\nFailed command: {' '.join(args)}"
+        )
     return listing
 
 
-def _computeSourceCodeObjectFilename(target: str, base: str, buildPath: Union[Path, str], arch: str) -> Union[Path, None]:
+def _computeSourceCodeObjectFilename(
+    target: str, base: str, buildPath: Union[Path, str], arch: str
+) -> Union[Path, None]:
     """Generates a code object file path using the target, base, and build path.
 
     Args:
@@ -93,7 +118,7 @@ def _computeSourceCodeObjectFilename(target: str, base: str, buildPath: Union[Pa
         if arch in baseVariant:
             coPath = buildPath / (baseVariant + ".hsaco.raw")
     else:
-        coPath= buildPath / "{0}.so-000-{1}.hsaco.raw".format(base, arch)
+        coPath = buildPath / "{0}.so-000-{1}.hsaco.raw".format(base, arch)
 
     return coPath
 
@@ -124,10 +149,17 @@ def _unbundleSourceCodeObjects(bundler: str, target: str, infile: str, outfileRa
         out = subprocess.check_output(args, stderr=subprocess.STDOUT)
         print2(f"Output: {out}" if out else "")
     except subprocess.CalledProcessError as err:
-        raise RuntimeError(f"Error unbundling source code object file: {err.output}\nFailed command: {' '.join(args)}")
+        raise RuntimeError(
+            f"Error unbundling source code object file: {err.output}\nFailed command: {' '.join(args)}"
+        )
 
 
-def _buildSourceCodeObjectFile(cxxCompiler: str, offloadBundler: str, outputPath: Union[Path, str], kernelPath: Union[Path, str]) -> List[str]:
+def _buildSourceCodeObjectFile(
+    cxxCompiler: str,
+    offloadBundler: str,
+    outputPath: Union[Path, str],
+    kernelPath: Union[Path, str],
+) -> List[str]:
     """Compiles a HIP source code file into a code object file.
 
     Args:
@@ -138,19 +170,19 @@ def _buildSourceCodeObjectFile(cxxCompiler: str, offloadBundler: str, outputPath
     Returns:
         List of paths to the created code objects.
     """
-    buildPath = Path(ensurePath(os.path.join(globalParameters['WorkingPath'], 'code_object_tmp')))
-    destPath = Path(ensurePath(os.path.join(outputPath, 'library')))
+    buildPath = Path(ensurePath(os.path.join(globalParameters["WorkingPath"], "code_object_tmp")))
+    destPath = Path(ensurePath(os.path.join(outputPath, "library")))
     kernelPath = Path(kernelPath)
 
     if "CmakeCxxCompiler" in globalParameters and globalParameters["CmakeCxxCompiler"] is not None:
-      os.environ["CMAKE_CXX_COMPILER"] = globalParameters["CmakeCxxCompiler"]
+        os.environ["CMAKE_CXX_COMPILER"] = globalParameters["CmakeCxxCompiler"]
 
-    objFilename = kernelPath.stem + '.o'
+    objFilename = kernelPath.stem + ".o"
     coPathsRaw = []
-    coPaths= []
+    coPaths = []
 
     if not supportedCompiler(cxxCompiler):
-      raise RuntimeError("Unknown compiler {}".format(cxxCompiler))
+        raise RuntimeError("Unknown compiler {}".format(cxxCompiler))
 
     _, cmdlineArchs = splitArchs()
 
@@ -158,26 +190,32 @@ def _buildSourceCodeObjectFile(cxxCompiler: str, offloadBundler: str, outputPath
     _compileSourceObjectFile(cmdlineArchs, cxxCompiler, str(kernelPath), objPath, str(outputPath))
 
     if not offloadBundler:
-      raise RuntimeError("No bundler found; set TENSILE_ROCM_OFFLOAD_BUNDLER_PATH to point to clang-offload-bundler")
+        raise RuntimeError(
+            "No bundler found; set TENSILE_ROCM_OFFLOAD_BUNDLER_PATH to point to clang-offload-bundler"
+        )
 
     for target in _listTargetTriples(offloadBundler, objPath):
-      match = re.search("gfx.*$", target)
-      if match:
-        arch = re.sub(":", "-", match.group())
-        coPathRaw = _computeSourceCodeObjectFilename(target, kernelPath.stem, buildPath, arch)
-        if not coPathRaw: continue
-        _unbundleSourceCodeObjects(offloadBundler, target, objPath, str(coPathRaw))
+        match = re.search("gfx.*$", target)
+        if match:
+            arch = re.sub(":", "-", match.group())
+            coPathRaw = _computeSourceCodeObjectFilename(target, kernelPath.stem, buildPath, arch)
+            if not coPathRaw:
+                continue
+            _unbundleSourceCodeObjects(offloadBundler, target, objPath, str(coPathRaw))
 
-        coPath = str(destPath / coPathRaw.stem)
-        coPathsRaw.append(coPathRaw)
-        coPaths.append(coPath)
+            coPath = str(destPath / coPathRaw.stem)
+            coPathsRaw.append(coPathRaw)
+            coPaths.append(coPath)
 
     for src, dst in zip(coPathsRaw, coPaths):
         shutil.move(src, dst)
 
     return coPaths
 
-def buildSourceCodeObjectFiles(cxxCompiler: str, offloadBundler: str, kernelFiles: List[Path], outputPath: Path) -> Iterable[str]:
+
+def buildSourceCodeObjectFiles(
+    cxxCompiler: str, offloadBundler: str, kernelFiles: List[Path], outputPath: Path
+) -> Iterable[str]:
     """Compiles HIP source code files into code object files.
 
     Args:
@@ -189,6 +227,11 @@ def buildSourceCodeObjectFiles(cxxCompiler: str, offloadBundler: str, kernelFile
     Returns:
         List of paths to the created code objects.
     """
-    args    = zip(itertools.repeat(cxxCompiler), itertools.repeat(offloadBundler), itertools.repeat(outputPath), kernelFiles)
+    args = zip(
+        itertools.repeat(cxxCompiler),
+        itertools.repeat(offloadBundler),
+        itertools.repeat(outputPath),
+        kernelFiles,
+    )
     coFiles = ParallelMap2(_buildSourceCodeObjectFile, args, "Compiling source kernels")
     return itertools.chain.from_iterable(coFiles)

@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -28,24 +28,6 @@ if __name__ == "__main__":
     print("This file can no longer be run as a script.  Run 'Tensile/bin/TensileCreateLibrary' instead.")
     exit(1)
 
-from . import Common
-from . import ClientExecutable
-from . import EmbeddedData
-from . import LibraryIO
-from . import Utils
-from .TensileInstructions import getGfxName, TensileInstructions
-from .Common import globalParameters, HR, print1, print2, printExit, ensurePath, \
-                    CHeader, CMakeHeader, assignGlobalParameters, \
-                    architectureMap, printWarning, \
-                    splitArchs
-from .KernelWriterAssembly import KernelWriterAssembly
-from .SolutionLibrary import MasterSolutionLibrary
-from .SolutionStructs import Solution
-from .CustomYamlLoader import load_logic_gfx_arch
-from .Utilities.Profile import profile
-from .Utilities.Toolchain import getVersion, validateToolchain, ToolchainDefaults
-from .BuildCommands import SourceCommands, AssemblyCommands
-
 import argparse
 import collections
 import glob
@@ -54,9 +36,34 @@ import os
 import re
 import shutil
 import sys
-from timeit import default_timer as timer
 from pathlib import Path
-from typing import Sequence, List, Union
+from timeit import default_timer as timer
+from typing import List, Sequence, Union
+
+from . import ClientExecutable, Common, EmbeddedData, LibraryIO, Utils
+from .BuildCommands import AssemblyCommands, SourceCommands
+from .Common import (
+    HR,
+    CHeader,
+    CMakeHeader,
+    architectureMap,
+    assignGlobalParameters,
+    ensurePath,
+    globalParameters,
+    print1,
+    print2,
+    printExit,
+    printWarning,
+    splitArchs,
+)
+from .CustomYamlLoader import load_logic_gfx_arch
+from .KernelWriterAssembly import KernelWriterAssembly
+from .SolutionLibrary import MasterSolutionLibrary
+from .SolutionStructs import Solution
+from .TensileInstructions import TensileInstructions, getGfxName
+from .Utilities.Profile import profile
+from .Utilities.Toolchain import ToolchainDefaults, getVersion, validateToolchain
+
 
 def timing(func):
   def wrapper(*args, **kwargs):
