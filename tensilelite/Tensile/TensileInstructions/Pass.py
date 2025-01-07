@@ -20,15 +20,28 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
+from dataclasses import dataclass
+
 from .Base import Item
 from .Code import KernelBody, Label, Macro, Module, RegSet, TextBlock
 from .Containers import RegisterContainer
-from .Instructions import BranchInstruction, CommonInstruction, Instruction, \
-                          CompositeInstruction, MacroInstruction, \
-                          ReadWriteInstruction, SEndpgm, SMovB32, \
-                          _SWaitCnt, _SWaitCntVscnt, SSleep, SBarrier, SNop
 from .Formatting import slash50
-from dataclasses import dataclass
+from .Instructions import (
+    BranchInstruction,
+    CommonInstruction,
+    CompositeInstruction,
+    Instruction,
+    MacroInstruction,
+    ReadWriteInstruction,
+    SBarrier,
+    SEndpgm,
+    SMovB32,
+    SNop,
+    SSleep,
+    _SWaitCnt,
+    _SWaitCntVscnt,
+)
+
 
 @dataclass
 class TensileInstructionsPassOptions:

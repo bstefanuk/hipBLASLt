@@ -20,14 +20,26 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Base import Item, fastdeepcopy
-from .Enums import InstType, CvtType
-from .Containers import DSModifiers, FLATModifiers, MUBUFModifiers, SMEMModifiers, SDWAModifiers, VOP3PModifiers, VCC, \
-                        RegisterContainer, HolderContainer, EXEC
-from .Formatting import formatStr, printExit
 import abc
 from enum import Enum
 from typing import List, Optional, Union
+
+from .Base import Item, fastdeepcopy
+from .Containers import (
+    EXEC,
+    VCC,
+    DSModifiers,
+    FLATModifiers,
+    HolderContainer,
+    MUBUFModifiers,
+    RegisterContainer,
+    SDWAModifiers,
+    SMEMModifiers,
+    VOP3PModifiers,
+)
+from .Enums import CvtType, InstType
+from .Formatting import formatStr, printExit
+
 #from .Utils import sgpr
 
 ################################################################################

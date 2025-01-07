@@ -20,16 +20,16 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Code import Module, Label, TextBlock
-from .Containers import RegisterContainer, VCC, DSModifiers
-from .DataType import DataType
-from .RegisterPool import RegisterPoolResource
-from .Utils import vgpr, sgpr, log2
-from . import Instructions as Inst
-
+import sys
 from enum import Enum
 from typing import Union
-import sys
+
+from . import Instructions as Inst
+from .Code import Label, Module, TextBlock
+from .Containers import VCC, DSModifiers, RegisterContainer
+from .DataType import DataType
+from .RegisterPool import RegisterPoolResource
+from .Utils import log2, sgpr, vgpr
 
 ################################################################################
 ################################################################################

@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,21 +20,21 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Base import getGfxName, getCOVFromParam
+import os
+import random
+import shlex
+import string
+from functools import lru_cache
+from math import log
+from typing import List, Tuple
+
+from .Base import getCOVFromParam, getGfxName
 from .Code import Module
 from .Containers import HolderContainer, RegisterContainer, RegName
 from .DataType import DataType
 from .Enums import InstType
 from .Formatting import printAssert, printExit
 from .Instructions import Instruction, SWaitCnt
-
-from functools import lru_cache
-from math import log
-from typing import List, Tuple
-import os
-import random
-import shlex
-import string
 
 ########################################
 # Format GPRs

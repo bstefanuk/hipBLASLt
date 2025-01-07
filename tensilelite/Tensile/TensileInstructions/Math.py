@@ -22,12 +22,12 @@
 
 from typing import Optional
 
+from . import Instructions as Inst
 from .Code import Module
 from .Containers import HWRegContainer, RegisterContainer
 from .ExtInstructions import SMulInt64to32
 from .RegisterPool import RegisterPoolResource
-from .Utils import vgpr, sgpr, log2
-from . import Instructions as Inst
+from .Utils import log2, sgpr, vgpr
 
 ########################################
 # Divide & Remainder

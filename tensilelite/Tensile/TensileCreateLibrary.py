@@ -56,8 +56,8 @@ from .CustomYamlLoader import load_logic_gfx_arch
 from .KernelWriterAssembly import KernelWriterAssembly
 from .SolutionLibrary import MasterSolutionLibrary
 from .SolutionStructs import Solution
-from .TensileInstructions.Utils import getGfxName
 from .TensileInstructions.Base import TensileInstructions
+from .TensileInstructions.Utils import getGfxName
 from .Utilities.Profile import profile
 from .Utilities.Toolchain import ToolchainDefaults, getVersion, validateToolchain
 

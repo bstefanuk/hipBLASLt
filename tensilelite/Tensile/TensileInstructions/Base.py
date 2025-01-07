@@ -20,16 +20,16 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Formatting import printExit
-
-from copy import deepcopy
-from dataclasses import dataclass
-from typing import Tuple
-
 import pickle
 import subprocess
 import threading
+from copy import deepcopy
+from dataclasses import dataclass
 from functools import lru_cache
+from typing import Tuple
+
+from .Formatting import printExit
+
 
 def fastdeepcopy(x):
     # Note: Some object can't be pickled

@@ -20,15 +20,14 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Base import Item, getGfxName
-from .Enums import SignatureValueKind
-from .Formatting import slash, slash50, block, block3Line, blockNewLine, \
-                        formatStr
-from .Instructions import Instruction, MacroInstruction
-
+import ctypes
 from math import ceil
 from typing import Optional
-import ctypes
+
+from .Base import Item, getGfxName
+from .Enums import SignatureValueKind
+from .Formatting import block, block3Line, blockNewLine, formatStr, slash, slash50
+from .Instructions import Instruction, MacroInstruction
 
 # Global to print module names around strings
 printModuleNames = 0

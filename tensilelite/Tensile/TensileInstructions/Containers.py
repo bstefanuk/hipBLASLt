@@ -20,13 +20,14 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Base import Item, getGlcBitName, getSlcBitName
-from .Enums import SelectBit, UnusedBit
-
+import math
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import List, Optional
-import math
+
+from .Base import Item, getGlcBitName, getSlcBitName
+from .Enums import SelectBit, UnusedBit
+
 
 class Container(Item):
     def __init__(self) -> None:
