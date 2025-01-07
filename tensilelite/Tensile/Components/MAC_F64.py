@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,8 +22,10 @@
 #
 ################################################################################
 
-from ..TensileInstructions import DataType, Module, vgpr, VFmaF64, SSetPrior
-from ..Component import Component, MAC
+from ..TensileInstructions.Code import Module
+from ..TensileInstructions.Utils import DataType, vgpr
+from ..TensileInstructions.Instructions import VFmaF64, SSetPrior
+from ..Component import MAC
 
 class FMA_F64_Plain(MAC):
     """

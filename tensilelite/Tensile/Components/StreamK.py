@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,15 +20,18 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from ..TensileInstructions import Module, Label, SAddU32, RegisterPoolResource, sgpr, scalarStaticDivideAndRemainder, \
-    SCmpLtU32, SCSelectB32, sMagicDivAlg2, SMulI32, SSubU32, SMinU32, SMovB32, SCBranchSCC1, SCmpLeU32, VMovB32, vgpr, \
-    SAddCU32, SCmpGtU32, SCMovB32, SAddI32, SCmpEQU32, SCBranchSCC0, SLShiftLeftB32, SLoadB32, SWaitCnt, SMEMModifiers, \
-    log2, SBarrier, SStoreB32, SLongBranchPositive, SBranch, ceilDivide, replaceHolder, SNop, staticMultiply, SSleep, \
-    VAddF32, VAddF64, SAndB32, SLShiftRightB32, VReadfirstlaneB32, SBranchIfNotZero
+from ..TensileInstructions import Instructions as ti
+from ..TensileInstructions import ExtInstructions as exti
+from ..TensileInstructions import Math as mathti
+from ..TensileInstructions.Code import Module, Label
+from ..TensileInstructions.Containers import SMEMModifiers, SDWAModifiers, EXEC
+from ..TensileInstructions.Enums import SelectBit
+from ..TensileInstructions.Utils import vgpr, sgpr, log2, replaceHolder, ceilDivide
+from ..TensileInstructions.RegisterPool import RegisterPoolResource
 from ..Common import print2
-# from ..TensileInstructions.Containers import SMEMModifiers
 from ..Component import Component
 from ..AsmStoreState import StoreState, VectorDataTypes
+from ..AsmAddressCalculation import AddrCalculation
 import abc
 from copy import deepcopy
 
@@ -68,24 +71,24 @@ class XCCMappingOn(XCCMapping):
                 sTmpRes  = RegisterPoolResource(idx=sTmp, size=2)
 
             # sGridC = ceil(grid / xccm)
-            module.add(SAddU32(dst=sgpr(sGridC), src0=sgpr("skGrid"), src1=hex(kernel["StreamKXCCMapping"] - 1), comment="ceil(grid/xccm)"))
-            module.add(scalarStaticDivideAndRemainder(qReg=sGridC, rReg=None, dReg=sGridC, divisor=kernel["StreamKXCCMapping"], tmpSgprRes=sTmpRes, doRemainder=0))
+            module.add(ti.SAddU32(dst=sgpr(sGridC), src0=sgpr("skGrid"), src1=hex(kernel["StreamKXCCMapping"] - 1), comment="ceil(grid/xccm)"))
+            module.add(mathti.scalarStaticDivideAndRemainder(qReg=sGridC, rReg=None, dReg=sGridC, divisor=kernel["StreamKXCCMapping"], tmpSgprRes=sTmpRes, doRemainder=0))
             # sGridF = floor(grid / xccm)
             # sGridM = grid % xccm
-            module.add(scalarStaticDivideAndRemainder(qReg=sGridF, rReg=sGridM, dReg="skGrid", divisor=kernel["StreamKXCCMapping"], tmpSgprRes=sTmpRes))
+            module.add(mathti.scalarStaticDivideAndRemainder(qReg=sGridF, rReg=sGridM, dReg="skGrid", divisor=kernel["StreamKXCCMapping"], tmpSgprRes=sTmpRes))
             # sXCC = wg0 % xccm
             # sqtmp is temp register for quotient for non-power-of-2 case
             # sqtmp overlaps temp registers, works in this case and output is discarded
-            module.add(scalarStaticDivideAndRemainder(qReg=sqTmp, rReg=sXCC, dReg="WorkGroup0", divisor=kernel["StreamKXCCMapping"], tmpSgprRes=sTmpRes, doRemainder=2))
+            module.add(mathti.scalarStaticDivideAndRemainder(qReg=sqTmp, rReg=sXCC, dReg="WorkGroup0", divisor=kernel["StreamKXCCMapping"], tmpSgprRes=sTmpRes, doRemainder=2))
             # Check if current XCC requires a remainder WG or not
-            module.add(SCmpLtU32(src0=sgpr(sXCC), src1=sgpr(sGridM), comment="XCCM < Remainder"))
-            module.add(SCSelectB32(dst=sgpr(sGridC), src0=sgpr(sGridC), src1=sgpr(sGridF), comment="Select multiplier"))
-            module.add(SCSelectB32(dst=sgpr(sGridM), src0=0, src1=sgpr(sGridM), comment="Select remainder"))
+            module.add(ti.SCmpLtU32(src0=sgpr(sXCC), src1=sgpr(sGridM), comment="XCCM < Remainder"))
+            module.add(ti.SCSelectB32(dst=sgpr(sGridC), src0=sgpr(sGridC), src1=sgpr(sGridF), comment="Select multiplier"))
+            module.add(ti.SCSelectB32(dst=sgpr(sGridM), src0=0, src1=sgpr(sGridM), comment="Select remainder"))
             # WG = floor(wg0 / xccm) * xccm + XCCoffset + optional remainder
-            module.add(scalarStaticDivideAndRemainder(qReg="WorkGroup0", rReg=None, dReg="WorkGroup0", divisor=kernel["StreamKXCCMapping"], tmpSgprRes=sTmpRes, doRemainder=0))
-            module.add(SMulI32(dst=sgpr(sXCC), src0=sgpr(sXCC), src1=sgpr(sGridC), comment="XCC group id"))
-            module.add(SAddU32(dst=sgpr("WorkGroup0"), src0=sgpr("WorkGroup0"), src1=sgpr(sXCC), comment="Add XCC group offset"))
-            module.add(SAddU32(dst=sgpr("WorkGroup0"), src0=sgpr("WorkGroup0"), src1=sgpr(sGridM), comment="Add remainder offset"))
+            module.add(mathti.scalarStaticDivideAndRemainder(qReg="WorkGroup0", rReg=None, dReg="WorkGroup0", divisor=kernel["StreamKXCCMapping"], tmpSgprRes=sTmpRes, doRemainder=0))
+            module.add(ti.SMulI32(dst=sgpr(sXCC), src0=sgpr(sXCC), src1=sgpr(sGridC), comment="XCC group id"))
+            module.add(ti.SAddU32(dst=sgpr("WorkGroup0"), src0=sgpr("WorkGroup0"), src1=sgpr(sXCC), comment="Add XCC group offset"))
+            module.add(ti.SAddU32(dst=sgpr("WorkGroup0"), src0=sgpr("WorkGroup0"), src1=sgpr(sGridM), comment="Add remainder offset"))
 
             writer.sgprPool.checkIn(sqTmp)
             if sTmp is not None:
@@ -120,16 +123,16 @@ class StreamK(Component):
         module.addComment0("StreamK calculate tile idx and map to WG")
 
         # sTmp = tile index
-        module.add(sMagicDivAlg2(sTmp, sgpr("StreamKIter"), sgpr("MagicNumberItersPerTile"), sgpr("MagicShiftItersPerTile")))
+        module.add(mathti.sMagicDivAlg2(sTmp, sgpr("StreamKIter"), sgpr("MagicNumberItersPerTile"), sgpr("MagicShiftItersPerTile")))
         # sTmp+1 = tile start
-        module.add(SMulI32(dst=sgpr(sTmp+1), src0=sgpr(sTmp), src1=sgpr("ItersPerTile"), comment="Tile start iteration"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp+1), src0=sgpr(sTmp), src1=sgpr("ItersPerTile"), comment="Tile start iteration"))
         # sTmp+2 = tile end
-        module.add(SAddU32(dst=sgpr(sTmp+2), src0=sgpr(sTmp+1), src1=sgpr("ItersPerTile"), comment="Tile end iteration"))
+        module.add(ti.SAddU32(dst=sgpr(sTmp+2), src0=sgpr(sTmp+1), src1=sgpr("ItersPerTile"), comment="Tile end iteration"))
         # local start
-        module.add(SSubU32(dst=sgpr("StreamKLocalStart"), src0=sgpr("StreamKIter"), src1=sgpr(sTmp+1), comment="Local iteration start"))
+        module.add(ti.SSubU32(dst=sgpr("StreamKLocalStart"), src0=sgpr("StreamKIter"), src1=sgpr(sTmp+1), comment="Local iteration start"))
         # local end (SK tile)
-        module.add(SMinU32(dst=sgpr("StreamKLocalEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr(sTmp+2), comment="1. (Local) iteration end (SK tile)"))
-        module.add(SSubU32(dst=sgpr("StreamKLocalEnd"), src0=sgpr("StreamKLocalEnd"), src1=sgpr(sTmp+1), comment="2. Local iteration end (SK tile)"))
+        module.add(ti.SMinU32(dst=sgpr("StreamKLocalEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr(sTmp+2), comment="1. (Local) iteration end (SK tile)"))
+        module.add(ti.SSubU32(dst=sgpr("StreamKLocalEnd"), src0=sgpr("StreamKLocalEnd"), src1=sgpr(sTmp+1), comment="2. Local iteration end (SK tile)"))
 
         return module
 
@@ -138,15 +141,15 @@ class StreamK(Component):
 
         # Map StreamK tile index to wg0/1
         module.addComment0("Map StreamK tile index to wg0/1/2")
-        module.add(sMagicDivAlg2(sTmp+1, sgpr(sTmp), sgpr("MagicNumProblemNumGroupTiles0By1"), sgpr("MagicShiftProblemNumGroupTiles0By1")))
-        module.add(SMovB32(dst=sgpr("WorkGroup2"), src=sgpr(sTmp+1), comment="wg2 = Tile Idx / problemNumGroupTiles0By1"))
-        module.add(SMulI32(dst=sgpr(sTmp+1), src0=sgpr(sTmp+1), src1=sgpr("NumWorkGroups0"), comment="remainder part 1 : quotient * divisor"))
-        module.add(SMulI32(dst=sgpr(sTmp+1), src0=sgpr(sTmp+1), src1=sgpr("NumWorkGroups1"), comment="remainder part 1 : quotient * divisor"))
-        module.add(SSubU32(dst=sgpr(sTmp), src0=sgpr(sTmp), src1=sgpr(sTmp+1), comment="remainder"))
-        module.add(sMagicDivAlg2(sTmp+1, sgpr(sTmp), sgpr("MagicNumberProblemNumGroupTiles0"), sgpr("MagicShiftProblemNumGroupTiles0")))
-        module.add(SMovB32(dst=sgpr("WorkGroup1"), src=sgpr(sTmp+1), comment="wg1 = Tile Idx / problemNumGroupTiles0"))
-        module.add(SMulI32(dst=sgpr("WorkGroup0"), src0=sgpr(sTmp+1), src1=sgpr("NumWorkGroups0"), comment="remainder part 1 : quotient * divisor"))
-        module.add(SSubU32(dst=sgpr("WorkGroup0"), src0=sgpr(sTmp), src1=sgpr("WorkGroup0"), comment="wg0 = Tile Idx % problemNumGroupTiles0"))
+        module.add(mathti.sMagicDivAlg2(sTmp+1, sgpr(sTmp), sgpr("MagicNumProblemNumGroupTiles0By1"), sgpr("MagicShiftProblemNumGroupTiles0By1")))
+        module.add(ti.SMovB32(dst=sgpr("WorkGroup2"), src=sgpr(sTmp+1), comment="wg2 = Tile Idx / problemNumGroupTiles0By1"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp+1), src0=sgpr(sTmp+1), src1=sgpr("NumWorkGroups0"), comment="remainder part 1 : quotient * divisor"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp+1), src0=sgpr(sTmp+1), src1=sgpr("NumWorkGroups1"), comment="remainder part 1 : quotient * divisor"))
+        module.add(ti.SSubU32(dst=sgpr(sTmp), src0=sgpr(sTmp), src1=sgpr(sTmp+1), comment="remainder"))
+        module.add(mathti.sMagicDivAlg2(sTmp+1, sgpr(sTmp), sgpr("MagicNumberProblemNumGroupTiles0"), sgpr("MagicShiftProblemNumGroupTiles0")))
+        module.add(ti.SMovB32(dst=sgpr("WorkGroup1"), src=sgpr(sTmp+1), comment="wg1 = Tile Idx / problemNumGroupTiles0"))
+        module.add(ti.SMulI32(dst=sgpr("WorkGroup0"), src0=sgpr(sTmp+1), src1=sgpr("NumWorkGroups0"), comment="remainder part 1 : quotient * divisor"))
+        module.add(ti.SSubU32(dst=sgpr("WorkGroup0"), src0=sgpr(sTmp), src1=sgpr("WorkGroup0"), comment="wg0 = Tile Idx % problemNumGroupTiles0"))
         module.addSpaceLine()
 
         return module
@@ -160,14 +163,14 @@ class StreamK(Component):
 
         tileStart = sTmp + 2
         # StreamK partial tile - offset to tile start index
-        module.add(SMulI32(dst=sgpr(sTmp), src0=sgpr("StreamKLocalStart"), src1="DepthU", comment="StreamK tile start offset"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp), src0=sgpr("StreamKLocalStart"), src1="DepthU", comment="StreamK tile start offset"))
         strideL = writer.strideRef(tc, kernel["ProblemType"]["IndicesSummation"][0])
         module.add(writer.s_mul_u64_u32(sgpr(sTmp), sgpr(sTmp+1), sgpr(sTmp), strideL, "StreamK tile start offset"))
         # Overflow check removed
         # if kernel["CheckDimOverflow"] >=2:
         #     kStr += self.assert_eq(sgpr(sTmp+1),0)
-        module.add(SAddU32(dst=sgpr(tileStart+0), src0=sgpr(tileStart+0), src1=sgpr(sTmp+0), comment="accum GsuOffset term to tilestart"))
-        module.add(SAddCU32(dst=sgpr(tileStart+1), src0=sgpr(tileStart+1), src1=sgpr(sTmp+1), comment="accum GsuOffset term to tilestart"))
+        module.add(ti.SAddU32(dst=sgpr(tileStart+0), src0=sgpr(tileStart+0), src1=sgpr(sTmp+0), comment="accum GsuOffset term to tilestart"))
+        module.add(ti.SAddCU32(dst=sgpr(tileStart+1), src0=sgpr(tileStart+1), src1=sgpr(sTmp+1), comment="accum GsuOffset term to tilestart"))
 
         return module
 
@@ -181,16 +184,16 @@ class StreamK(Component):
         tc = tP["tensorChar"]
         # StreamK partial tile - offset to tile start index
         tmpOffset = writer.sgprPool.checkOut(2, "skStartOffset", preventOverflow=0)
-        module.add(SMulI32(dst=sgpr(tmpOffset), src0=sgpr("StreamKLocalStart"), src1="DepthU*%d" % (tP["bpe"]), comment="StreamK tile start offset"))
+        module.add(ti.SMulI32(dst=sgpr(tmpOffset), src0=sgpr("StreamKLocalStart"), src1="DepthU*%d" % (tP["bpe"]), comment="StreamK tile start offset"))
         strideL = writer.strideRef(tc, kernel["ProblemType"]["IndicesSummation"][0])
         module.add(writer.s_mul_u64_u32(sgpr(tmpOffset), sgpr(tmpOffset+1), sgpr(tmpOffset), strideL, "StreamK tile start offset"))
         # Overflow check removed
         # if kernel["CheckDimOverflow"] >=2:
         #     kStr += self.assert_eq(sgpr(tmpOffset+1),0)
-        module.add(SAddU32(dst=sgpr(tmpOffset+0), src0=sgpr(tmpOffset+0), src1=sgpr("Address%s+0" % tc), comment="accum skOffset term to tilestart"))
-        module.add(SAddCU32(dst=sgpr(tmpOffset+1), src0=sgpr(tmpOffset+1), src1=sgpr("Address%s+1" % tc), comment="accum skOffset term to tilestart"))
-        module.add(VMovB32(dst=vgpr(vTmp+0), src=sgpr(tmpOffset+0)))
-        module.add(VMovB32(dst=vgpr(vTmp+1), src=sgpr(tmpOffset+1)))
+        module.add(ti.SAddU32(dst=sgpr(tmpOffset+0), src0=sgpr(tmpOffset+0), src1=sgpr("Address%s+0" % tc), comment="accum skOffset term to tilestart"))
+        module.add(ti.SAddCU32(dst=sgpr(tmpOffset+1), src0=sgpr(tmpOffset+1), src1=sgpr("Address%s+1" % tc), comment="accum skOffset term to tilestart"))
+        module.add(ti.VMovB32(dst=vgpr(vTmp+0), src=sgpr(tmpOffset+0)))
+        module.add(ti.VMovB32(dst=vgpr(vTmp+1), src=sgpr(tmpOffset+1)))
         writer.sgprPool.checkIn(tmpOffset)
 
         return module
@@ -203,10 +206,10 @@ class StreamK(Component):
         module = Module("StreamK Common declareStaggerParms")
 
         # Set stagger=0 for partial tiles to avoid using stagger larger than workload
-        module.add(SCmpGtU32(src0=sgpr("StreamKLocalStart"), src1=0, comment="does wg start tile?"))
-        module.add(SCMovB32(dst=sgpr("StaggerUIter"), src=0, comment="set stagger=0 for partial tiles"))
-        module.add(SCmpLtU32(src0=sgpr("StreamKLocalEnd"), src1=sgpr("ItersPerTile"), comment="does wg finish tile?"))
-        module.add(SCMovB32(dst=sgpr("StaggerUIter"), src=0, comment="set stagger=0 for partial tiles"))
+        module.add(ti.SCmpGtU32(src0=sgpr("StreamKLocalStart"), src1=0, comment="does wg start tile?"))
+        module.add(ti.SCMovB32(dst=sgpr("StaggerUIter"), src=0, comment="set stagger=0 for partial tiles"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKLocalEnd"), src1=sgpr("ItersPerTile"), comment="does wg finish tile?"))
+        module.add(ti.SCMovB32(dst=sgpr("StaggerUIter"), src=0, comment="set stagger=0 for partial tiles"))
 
         return module
 
@@ -219,8 +222,8 @@ class StreamK(Component):
 
         # skip tail loop if StreamK WG not processing final iteration
         # Check if tile finished
-        module.add(SCmpLtU32(src0=sgpr("StreamKLocalEnd"), src1=sgpr("ItersPerTile"), comment="Check if WG processes final iteration of tile"))
-        module.add(SCMovB32(dst=loopCounter, src=hex(0), comment="This WG not completing tile"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKLocalEnd"), src1=sgpr("ItersPerTile"), comment="Check if WG processes final iteration of tile"))
+        module.add(ti.SCMovB32(dst=loopCounter, src=hex(0), comment="This WG not completing tile"))
 
         return module
 
@@ -232,11 +235,11 @@ class StreamK(Component):
         module = Module("StreamK Common calculateLoopNumIter")
 
         # Use StreamK params for loop count
-        module.add(SSubU32(dst=sgpr(loopCounterName), src0=sgpr("StreamKLocalEnd"), src1=sgpr("StreamKLocalStart"), comment="StreamK loop counter = localEnd - localStart"))
+        module.add(ti.SSubU32(dst=sgpr(loopCounterName), src0=sgpr("StreamKLocalEnd"), src1=sgpr("StreamKLocalStart"), comment="StreamK loop counter = localEnd - localStart"))
         # Short circuit if alpha==0 (set loopCounter to 0 to skip main loop)
         alphaLabel2 = Label("SKAlphaCheck2", "")
-        module.add(SBranchIfNotZero("Alpha", kernel["ProblemType"]["ComputeDataType"], alphaLabel2))
-        module.add(SMovB32(dst=sgpr(loopCounterName), src=0, comment="Skip iterations"))
+        module.add(exti.SBranchIfNotZero("Alpha", kernel["ProblemType"]["ComputeDataType"], alphaLabel2))
+        module.add(ti.SMovB32(dst=sgpr(loopCounterName), src=0, comment="Skip iterations"))
         module.add(alphaLabel2)
 
         # Adjust loop count for tail loop
@@ -247,15 +250,15 @@ class StreamK(Component):
 
             assert kernel["DepthU"] % 2 == 0 # Assuming DepthU is power of 2, if odd DepthU were supported this divide would need 2 more temp registers for divide
             if ((kernel["DepthU"] & (kernel["DepthU"] - 1)) == 0):
-                module.add(scalarStaticDivideAndRemainder(qReg=tmpSgpr, rReg=tmpSgpr+1, dReg=("SizesSum+%u" % unrollIdx), divisor=kernel["DepthU"], tmpSgprRes=None, doRemainder=2))
+                module.add(mathti.scalarStaticDivideAndRemainder(qReg=tmpSgpr, rReg=tmpSgpr+1, dReg=("SizesSum+%u" % unrollIdx), divisor=kernel["DepthU"], tmpSgprRes=None, doRemainder=2))
             else:
                 with writer.allocTmpSgpr(4) as tmpSgpr1:
-                    module.add(scalarStaticDivideAndRemainder(qReg=tmpSgpr, rReg=tmpSgpr+1, dReg=("SizesSum+%u" % unrollIdx), divisor=kernel["DepthU"], tmpSgprRes=tmpSgpr1, doRemainder=2))
-            module.add(SCmpEQU32(src0=sgpr(tmpSgpr+1), src1=hex(0), comment="numIter%s == 0"%loopChar ))
-            module.add(SCSelectB32(dst=sgpr(tmpSgpr), src0=0, src1=1, comment="check if size uses tail loop"))
-            module.add(SCmpEQU32(src0=sgpr("StreamKLocalEnd"), src1=sgpr("ItersPerTile"), comment="Check if WG processes final iteration of tile"))
-            module.add(SCSelectB32(dst=sgpr(tmpSgpr), src0=sgpr(tmpSgpr), src1=0, comment="this WG runs tail loop"))
-            module.add(SSubU32(dst=sgpr(loopCounterName), src0=sgpr(loopCounterName), src1=sgpr(tmpSgpr), comment="Adjust loop counter for tail loop"))
+                    module.add(mathti.scalarStaticDivideAndRemainder(qReg=tmpSgpr, rReg=tmpSgpr+1, dReg=("SizesSum+%u" % unrollIdx), divisor=kernel["DepthU"], tmpSgprRes=tmpSgpr1, doRemainder=2))
+            module.add(ti.SCmpEQU32(src0=sgpr(tmpSgpr+1), src1=hex(0), comment="numIter%s == 0"%loopChar ))
+            module.add(ti.SCSelectB32(dst=sgpr(tmpSgpr), src0=0, src1=1, comment="check if size uses tail loop"))
+            module.add(ti.SCmpEQU32(src0=sgpr("StreamKLocalEnd"), src1=sgpr("ItersPerTile"), comment="Check if WG processes final iteration of tile"))
+            module.add(ti.SCSelectB32(dst=sgpr(tmpSgpr), src0=sgpr(tmpSgpr), src1=0, comment="this WG runs tail loop"))
+            module.add(ti.SSubU32(dst=sgpr(loopCounterName), src0=sgpr(loopCounterName), src1=sgpr(tmpSgpr), comment="Adjust loop counter for tail loop"))
 
         return module
 
@@ -277,45 +280,45 @@ class StreamK(Component):
         tmpSgpr = writer.sgprPool.checkOut(4, "globalWriteElements", preventOverflow=0)
         # if we did not start the tile, store partials
         # branch to beta == 0 store path
-        module.add(SCmpEQU32(src0=sgpr("StreamKLocalStart"), src1=0, comment="does wg start tile?"))
+        module.add(ti.SCmpEQU32(src0=sgpr("StreamKLocalStart"), src1=0, comment="does wg start tile?"))
         module.add(writer.longBranchScc0(skPartialsLabel, posNeg=1))
-        # module.add(SCBranchSCC0(labelName=skPartialsLabel.getLabelName(), comment="Branch if not start tile, store partials"))
+        # module.add(ti.SCBranchSCC0(labelName=skPartialsLabel.getLabelName(), comment="Branch if not start tile, store partials"))
 
         if kernel["DebugStreamK"] & 1 == 0:
             # if we started and finished the tile, regular store code
             # branch to regular store code, skip fixup step
-            module.add(SCmpEQU32(src0=sgpr("StreamKLocalEnd"), src1=sgpr("ItersPerTile"), comment="does wg finish tile?"))
-            module.add(SCBranchSCC1(labelName=skStoreLabel.getLabelName(), comment="Branch if started and finished tile, go to regular store code"))
+            module.add(ti.SCmpEQU32(src0=sgpr("StreamKLocalEnd"), src1=sgpr("ItersPerTile"), comment="does wg finish tile?"))
+            module.add(ti.SCBranchSCC1(labelName=skStoreLabel.getLabelName(), comment="Branch if started and finished tile, go to regular store code"))
 
             # if we started the tile but did not finish it, fix up step
             # run fixup code before regular store code
             sCtaIdx = writer.sgprPool.checkOut(1, "CtaIdx", preventOverflow=0) # self.defineSgpr("CtaIdx", 1)
-            module.add(SAddU32(dst=sgpr(sCtaIdx), src0=sgpr("StreamKIdx"), src1=1, comment="input partial tile index"))
+            module.add(ti.SAddU32(dst=sgpr(sCtaIdx), src0=sgpr("StreamKIdx"), src1=1, comment="input partial tile index"))
 
             sFixupEnd = writer.sgprPool.checkOut(1, "FixupEnd", preventOverflow=0) # self.defineSgpr("CtaEnd", 1)
-            module.add(sMagicDivAlg2(tmpSgpr, sgpr("StreamKIterEnd"), sgpr("MagicNumberItersPerTile"), sgpr("MagicShiftItersPerTile")))
-            module.add(SMulI32(dst=sgpr(tmpSgpr), src0=sgpr(tmpSgpr), src1=sgpr("ItersPerTile"), comment="start iteration of partial tile"))
-            module.add(SSubU32(dst=sgpr(sFixupEnd), src0=sgpr("StreamKIterEnd"), src1=sgpr(tmpSgpr), comment="calc iterations completed by this WG"))
+            module.add(mathti.sMagicDivAlg2(tmpSgpr, sgpr("StreamKIterEnd"), sgpr("MagicNumberItersPerTile"), sgpr("MagicShiftItersPerTile")))
+            module.add(ti.SMulI32(dst=sgpr(tmpSgpr), src0=sgpr(tmpSgpr), src1=sgpr("ItersPerTile"), comment="start iteration of partial tile"))
+            module.add(ti.SSubU32(dst=sgpr(sFixupEnd), src0=sgpr("StreamKIterEnd"), src1=sgpr(tmpSgpr), comment="calc iterations completed by this WG"))
 
             module.add(skFixupLabel)
 
             # Check flag
-            module.add(SLShiftLeftB32(dst=sgpr(tmpSgpr), src=sgpr(sCtaIdx), shiftHex=log2(4), comment="flag offset based on CTA index"))
-            module.add(SLoadB32(dst=sgpr(tmpSgpr+2), base=sgpr("AddressFlags", 2), soffset=sgpr(tmpSgpr), smem=SMEMModifiers(glc=1), comment="get flag"))
+            module.add(ti.SLShiftLeftB32(dst=sgpr(tmpSgpr), src=sgpr(sCtaIdx), shiftHex=log2(4), comment="flag offset based on CTA index"))
+            module.add(ti.SLoadB32(dst=sgpr(tmpSgpr+2), base=sgpr("AddressFlags", 2), soffset=sgpr(tmpSgpr), smem=SMEMModifiers(glc=1), comment="get flag"))
 
-            module.add(SWaitCnt(lgkmcnt=0, comment="wait for flag load"))
+            module.add(ti.SWaitCnt(lgkmcnt=0, comment="wait for flag load"))
             if kernel["DebugStreamK"] & 2 == 0:
-                module.add(SCmpEQU32(src0=sgpr(tmpSgpr+2), src1=1, comment="check if ready"))
-                module.add(SCBranchSCC0(labelName=skFixupLabel.getLabelName(), comment="if flag not set, wait and check again"))
+                module.add(ti.SCmpEQU32(src0=sgpr(tmpSgpr+2), src1=1, comment="check if ready"))
+                module.add(ti.SCBranchSCC0(labelName=skFixupLabel.getLabelName(), comment="if flag not set, wait and check again"))
 
             # TODO Barrier here to sync all threads in workgroup, but maybe better to have separate flag for each wavefront (to be tested)
-            module.add(SBarrier(comment="wait for all workgroups before resetting flag"))
+            module.add(ti.SBarrier(comment="wait for all workgroups before resetting flag"))
             skipFlagReset = Label(label=writer.labels.getNameInc("SK_SkipFlagReset"), comment="")
-            module.add(VReadfirstlaneB32(dst=sgpr(tmpSgpr+2), src=vgpr("Serial"), comment="Wave 0 updates flags"))
-            module.add(SCmpEQU32(src0=sgpr(tmpSgpr+2), src1=0, comment="Check for wave 0"))
-            module.add(SCBranchSCC0(labelName=skipFlagReset.getLabelName(), comment="Skip flag reset"))
+            module.add(ti.VReadfirstlaneB32(dst=sgpr(tmpSgpr+2), src=vgpr("Serial"), comment="Wave 0 updates flags"))
+            module.add(ti.SCmpEQU32(src0=sgpr(tmpSgpr+2), src1=0, comment="Check for wave 0"))
+            module.add(ti.SCBranchSCC0(labelName=skipFlagReset.getLabelName(), comment="Skip flag reset"))
             # (tmpSgpr+2) contains a vlue of 0, use it to reset the flag
-            module.add(SStoreB32(src=sgpr(tmpSgpr+2), base=sgpr("AddressFlags", 2), soffset=sgpr(tmpSgpr), smem=SMEMModifiers(glc=1), comment="reset flag"))
+            module.add(ti.SStoreB32(src=sgpr(tmpSgpr+2), base=sgpr("AddressFlags", 2), soffset=sgpr(tmpSgpr), smem=SMEMModifiers(glc=1), comment="reset flag"))
             module.add(skipFlagReset)
             writer.sgprPool.checkIn(tmpSgpr)
 
@@ -324,16 +327,16 @@ class StreamK(Component):
 
             if kernel["StreamK"] >= 2:
                 sIterCount = writer.sgprPool.checkOut(1, "iterCount", preventOverflow=0)
-                module.add(SAddU32(dst=sgpr(sIterCount), src0=sgpr("SKItersPerWG"), src1=1, comment="Add extra iter"))
-                module.add(SCmpLtU32(src0=sgpr(sCtaIdx), src1=sgpr("skExtraIters"), comment="Check if next WG had an extra iteration"))
-                module.add(SCSelectB32(dst=sgpr(sIterCount), src0=sgpr(sIterCount), src1=sgpr("SKItersPerWG"), comment="Select correct number of iterations for next WG"))
-                module.add(SAddU32(dst=sgpr(sFixupEnd), src0=sgpr(sFixupEnd), src1=sgpr(sIterCount), comment="next partial tile iteration"))
+                module.add(ti.SAddU32(dst=sgpr(sIterCount), src0=sgpr("SKItersPerWG"), src1=1, comment="Add extra iter"))
+                module.add(ti.SCmpLtU32(src0=sgpr(sCtaIdx), src1=sgpr("skExtraIters"), comment="Check if next WG had an extra iteration"))
+                module.add(ti.SCSelectB32(dst=sgpr(sIterCount), src0=sgpr(sIterCount), src1=sgpr("SKItersPerWG"), comment="Select correct number of iterations for next WG"))
+                module.add(ti.SAddU32(dst=sgpr(sFixupEnd), src0=sgpr(sFixupEnd), src1=sgpr(sIterCount), comment="next partial tile iteration"))
                 writer.sgprPool.checkIn(sIterCount)
-            module.add(SAddU32(dst=sgpr(sCtaIdx), src0=sgpr(sCtaIdx), src1=1, comment="next partial tile index"))
+            module.add(ti.SAddU32(dst=sgpr(sCtaIdx), src0=sgpr(sCtaIdx), src1=1, comment="next partial tile index"))
             if kernel["StreamK"] == 1:
-                module.add(SAddU32(dst=sgpr(sFixupEnd), src0=sgpr(sFixupEnd), src1=sgpr("SKItersPerWG"), comment="next partial tile iteration"))
-            module.add(SCmpLtU32(src0=sgpr(sFixupEnd), src1=sgpr("ItersPerTile"), comment="done loading partial tiles?"))
-            module.add(SCBranchSCC1(labelName=skFixupLabel.getLabelName(), comment="Branch to continue fixup loop"))
+                module.add(ti.SAddU32(dst=sgpr(sFixupEnd), src0=sgpr(sFixupEnd), src1=sgpr("SKItersPerWG"), comment="next partial tile iteration"))
+            module.add(ti.SCmpLtU32(src0=sgpr(sFixupEnd), src1=sgpr("ItersPerTile"), comment="done loading partial tiles?"))
+            module.add(ti.SCBranchSCC1(labelName=skFixupLabel.getLabelName(), comment="Branch to continue fixup loop"))
 
             writer.sgprPool.checkIn(sFixupEnd)
             writer.sgprPool.checkIn(sCtaIdx)
@@ -379,10 +382,10 @@ class StreamK(Component):
         module = Module("StreamK Common computeWorkspaceSrd")
 
         # Base Address
-        module.add(SMovB32(dst=sgpr("SrdWS+0"), src=sgpr("AddressWS+0"), comment="init SRD base address (lower)"))
-        module.add(SMovB32(dst=sgpr("SrdWS+1"), src=sgpr("AddressWS+1"), comment="init SRD base address (upper) + other fields"))
-        module.add(SMovB32(dst=sgpr("SrdWS+2"), src="BufferOOB", comment=""))
-        module.add(SMovB32(dst=sgpr("SrdWS+3"), src="Srd127_96", comment="Set bits 127_96 in post-loop SRD"))
+        module.add(ti.SMovB32(dst=sgpr("SrdWS+0"), src=sgpr("AddressWS+0"), comment="init SRD base address (lower)"))
+        module.add(ti.SMovB32(dst=sgpr("SrdWS+1"), src=sgpr("AddressWS+1"), comment="init SRD base address (upper) + other fields"))
+        module.add(ti.SMovB32(dst=sgpr("SrdWS+2"), src="BufferOOB", comment=""))
+        module.add(ti.SMovB32(dst=sgpr("SrdWS+3"), src="Srd127_96", comment="Set bits 127_96 in post-loop SRD"))
 
         tmpLocal = None
         if tmpSgpr == None:
@@ -391,9 +394,9 @@ class StreamK(Component):
 
         assert kernel["BufferStore"]
         module.addSpaceLine()
-        module.add(SMulI32(dst=sgpr(tmpSgpr), src0=hex(kernel["MacroTile0"]*kernel["MacroTile1"]*writer.states.bpeCinternal), src1=sCtaIdx, comment="Offset to correct partials tile"))
-        module.add(SAddU32(dst=sgpr("SrdWS+0"), src0=sgpr("SrdWS+0"), src1=sgpr(tmpSgpr), comment="add lo to SRD"))
-        module.add(SAddCU32(dst=sgpr("SrdWS+1"), src0=sgpr("SrdWS+1"), src1=0, comment="add hi to SRD"))
+        module.add(ti.SMulI32(dst=sgpr(tmpSgpr), src0=hex(kernel["MacroTile0"]*kernel["MacroTile1"]*writer.states.bpeCinternal), src1=sCtaIdx, comment="Offset to correct partials tile"))
+        module.add(ti.SAddU32(dst=sgpr("SrdWS+0"), src0=sgpr("SrdWS+0"), src1=sgpr(tmpSgpr), comment="add lo to SRD"))
+        module.add(ti.SAddCU32(dst=sgpr("SrdWS+1"), src0=sgpr("SrdWS+1"), src1=0, comment="add hi to SRD"))
 
         if tmpLocal is not None:
             writer.sgprPool.checkIn(tmpLocal)
@@ -607,27 +610,27 @@ class StreamK(Component):
             #     kStr += PreLoopVmcntCaseStr
 
             # Set flag
-            module.add(SWaitCnt(vmcnt=0, comment="wait for data store"))
-            module.add(SBarrier(comment="store all data before setting flag"))
-            module.add(SLShiftLeftB32(dst=sgpr(tmpSgpr), src=sgpr("StreamKIdx"), shiftHex=log2(4), comment="flag offset based on CTA index"))
+            module.add(ti.SWaitCnt(vmcnt=0, comment="wait for data store"))
+            module.add(ti.SBarrier(comment="store all data before setting flag"))
+            module.add(ti.SLShiftLeftB32(dst=sgpr(tmpSgpr), src=sgpr("StreamKIdx"), shiftHex=log2(4), comment="flag offset based on CTA index"))
             with writer.allocTmpSgpr(1) as flagSgprRes:
                 flagSgpr = flagSgprRes.idx
                 skipFlagSet = Label(label=writer.labels.getNameInc("SK_SkipFlagSet"), comment="")
-                module.add(VReadfirstlaneB32(dst=sgpr(flagSgpr), src=vgpr("Serial"), comment="Wave 0 updates flags"))
-                module.add(SCmpEQU32(src0=sgpr(flagSgpr), src1=0, comment="Check for wave 0"))
-                module.add(SCBranchSCC0(labelName=skipFlagSet.getLabelName(), comment="Skip flag set"))
-                module.add(SMovB32(dst=sgpr(flagSgpr), src=1, comment="flag data"))
-                module.add(SStoreB32(src=sgpr(flagSgpr), base=sgpr("AddressFlags", 2), soffset=sgpr(tmpSgpr), smem=SMEMModifiers(glc=1), comment="set flag"))
+                module.add(ti.VReadfirstlaneB32(dst=sgpr(flagSgpr), src=vgpr("Serial"), comment="Wave 0 updates flags"))
+                module.add(ti.SCmpEQU32(src0=sgpr(flagSgpr), src1=0, comment="Check for wave 0"))
+                module.add(ti.SCBranchSCC0(labelName=skipFlagSet.getLabelName(), comment="Skip flag set"))
+                module.add(ti.SMovB32(dst=sgpr(flagSgpr), src=1, comment="flag data"))
+                module.add(ti.SStoreB32(src=sgpr(flagSgpr), base=sgpr("AddressFlags", 2), soffset=sgpr(tmpSgpr), smem=SMEMModifiers(glc=1), comment="set flag"))
                 module.add(skipFlagSet)
-            module.add(SWaitCnt(lgkmcnt=0, comment="wait for flag")) # TODO just for testing
+            module.add(ti.SWaitCnt(lgkmcnt=0, comment="wait for flag")) # TODO just for testing
 
         # TODO - if this is the last tile, don't need to jump to next instruction
         # NOTE: in SR kernel, we need long branch since PRNG explodes the line of codes
         if kernel["ProblemType"]["StochasticRounding"]: # in-device RND
             with self.allocTmpSgpr(3) as tmpSgprInfo:
-                module.add(SLongBranchPositive(endLabel, tmpSgprInfo))
+                module.add(exti.SLongBranchPositive(endLabel, tmpSgprInfo))
         else:
-            module.add(SBranch(labelName=endLabel.getLabelName(), comment="jump to end"))
+            module.add(ti.SBranch(labelName=endLabel.getLabelName(), comment="jump to end"))
 
         # Finish one write path, reset currPreLoopVmcntCase to Undefined
         # self.currPreLoopVmcntCase = PreLoopVmcntCase.Undefined
@@ -643,8 +646,8 @@ class StreamK(Component):
             (ss.optSingleColVgpr, ss.optSharedColVgpr, ss.optSGPRUsage, ss.optSrdIncForRow))
 
         if kernel["StoreSyncOpt"]:
-            module.add(SSleep(kernel["StoreSyncOpt"] - 1, "optimization: sync and wait"))
-            module.add(SBarrier())
+            module.add(ti.SSleep(kernel["StoreSyncOpt"] - 1, "optimization: sync and wait"))
+            module.add(ti.SBarrier())
 
         # comment tt1, tt0, vc1, vc0
         # tt = thread tile, vc=vector component
@@ -673,11 +676,11 @@ class StreamK(Component):
         # for the top-left corner this thread will write.    These are not changed
         # across all the store loop iters.
         if writer.db["ConservativeWaitCnt"] & 0x10:
-            module.add(SBarrier("debug"))
-            module.add(SWaitCnt(vmcnt=0, comment="ConservativeWaitCnt"))
+            module.add(ti.SBarrier("debug"))
+            module.add(ti.SWaitCnt(vmcnt=0, comment="ConservativeWaitCnt"))
             if writer.states.archCaps["SeparateVscnt"]:
-                module.add(SWaitCnt(vscnt=0, comment="writes"))
-            module.add(SBarrier("debug"))
+                module.add(ti.SWaitCnt(vscnt=0, comment="writes"))
+            module.add(ti.SBarrier("debug"))
         if not edge and writer.db["ForceEdgeStores"]>=2:
             module.add(self.parentWriter.getBomb()) # should not get here
         if edge and writer.db["AssertNoEdge"]:
@@ -707,7 +710,7 @@ class StreamK(Component):
                         #     accVgprRead.addCode(tempStr.replace("ValuC","L2GC"))
 
             if not kernel["MIArchVgpr"]:
-                module.add(SNop(1, "2 wait states required before reading vgpr"))
+                module.add(ti.SNop(1, "2 wait states required before reading vgpr"))
 
         ########################################
         # Not Atomic
@@ -723,13 +726,13 @@ class StreamK(Component):
                 # covers sgemm, gemm_ex(HHS/HSS/BBS/BSS (HPA=T)), int8 (int8x4?)
                 if kernel["ProblemType"]["ComputeDataType"].isInt32() or kernel["ProblemType"]["ComputeDataType"].isSingle():
                     if writer.db["ForceExpectedValue"]:
-                        module.add(VMovB32(dst=vgpr("ValuC+%u"%sumIdxV), src=writer.db["ValueCExpectedValue"], comment="force expected value"))
-                        # module.add(VMovB32(dst=vgpr("ValuC+%u"%newSumIdxV), src=self.debugConfig["ValueCExpectedValue"], comment="force expected value" ))
+                        module.add(ti.VMovB32(dst=vgpr("ValuC+%u"%sumIdxV), src=writer.db["ValueCExpectedValue"], comment="force expected value"))
+                        # module.add(ti.VMovB32(dst=vgpr("ValuC+%u"%newSumIdxV), src=self.debugConfig["ValueCExpectedValue"], comment="force expected value" ))
                     if writer.db["ForceVSerial"]:
-                        module.add(VMovB32(dst=vgpr("ValuC+%u"%sumIdxV), src=vgpr("Serial"), comment="force expected value to serial"))
-                        # module.add(VMovB32(dst=vgpr("ValuC+%u"%newSumIdxV), src=vgpr("Serial"), comment="force expected value to serial" ))
+                        module.add(ti.VMovB32(dst=vgpr("ValuC+%u"%sumIdxV), src=vgpr("Serial"), comment="force expected value to serial"))
+                        # module.add(ti.VMovB32(dst=vgpr("ValuC+%u"%newSumIdxV), src=vgpr("Serial"), comment="force expected value to serial" ))
                     if writer.db["CheckValueC"]:
-                        module.add(SMovB32(dst=sgpr(tmpS01), src=writer.db["ValueCExpectedValue"], comment="Move expected value"))
+                        module.add(ti.SMovB32(dst=sgpr(tmpS01), src=writer.db["ValueCExpectedValue"], comment="Move expected value"))
                         module.add(writer.getCmpAssert(writer.asmAssert.eq, vgpr("ValuC+%u"%sumIdxV), sgpr(tmpS01)))
 
         module.addComment1("apply mask, calc new C and issue writes")
@@ -744,17 +747,17 @@ class StreamK(Component):
         #     kStr += inst("v_mov_b32", vgpr(vgprFp32Nan), "0x7fff0000", "fp32 Nan" )
         #     kStr += inst("v_mov_b32", vgpr(vgprBf16Inc), "0x7fff", "rounding bias for bfloat16" )
         if kernel["ProblemType"]["DestDataType"].isBFloat16() and kernel["ProblemType"]["HighPrecisionAccumulate"]:
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBf16Mask), "0xffff0000", "mask for pack two bfloat16 element to 32bit" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprFp32Nan), "0x7fff0000", "fp32 Nan" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBf16Inc), "0x7fff", "rounding bias for bfloat16" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBf16Mask), "0xffff0000", "mask for pack two bfloat16 element to 32bit" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprFp32Nan), "0x7fff0000", "fp32 Nan" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBf16Inc), "0x7fff", "rounding bias for bfloat16" ))
         elif kernel["ProblemType"]["DestDataType"].isFloat8() and kernel["ProblemType"]["HighPrecisionAccumulate"]:
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprFp8NanInf), "0x207", "Nan and +/- inf" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprFp8Max), "0x43700000", "Fp8 Max value 240 as float32" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprFp8Min), "0xc3700000", "Fp8 Min value -240 as float32" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprFp8NanInf), "0x207", "Nan and +/- inf" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprFp8Max), "0x43700000", "Fp8 Max value 240 as float32" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprFp8Min), "0xc3700000", "Fp8 Min value -240 as float32" ))
         elif kernel["ProblemType"]["DestDataType"].isBFloat8() and kernel["ProblemType"]["HighPrecisionAccumulate"]:
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBF8NanInf), "0x207", "Nan and +/- inf" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBF8Max), "0x47600000", "BF8 Max value 57344 as float32" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBF8Min), "0xc7600000", "BF8 Min value -57344 as float32" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBF8NanInf), "0x207", "Nan and +/- inf" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBF8Max), "0x47600000", "BF8 Max value 57344 as float32" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBF8Min), "0xc7600000", "BF8 Min value -57344 as float32" ))
 
         # DestDataType for 8bit Float can only be F8 or B8
         # if kernel["ProblemType"]["DestDataType"].isFloat8() or kernel["ProblemType"]["DestDataType"].isBFloat8(): # F8 is always HPA
@@ -791,12 +794,12 @@ class StreamK(Component):
             # storeWidth = 2
             if batchIdx == 0 and elementIdx == 0:
                 tmpSgprRes = RegisterPoolResource(idx=tmpS01, size=1)
-                module.add(staticMultiply(vgpr(addr), vgpr("Serial"), storeWidth * writer.states.bpeCinternal, tmpSgprRes))
+                module.add(mathti.staticMultiply(vgpr(addr), vgpr("Serial"), storeWidth * writer.states.bpeCinternal, tmpSgprRes))
                 # kStr += inst("v_mul_lo_u32", , "Partials buffer address")
-                module.add(SMovB32(dst=sgpr(tmpS01), src=0, comment="Init sgpr offset"))
+                module.add(ti.SMovB32(dst=sgpr(tmpS01), src=0, comment="Init sgpr offset"))
             else:
                 increment = (kernel["WavefrontSize"] * 4) * storeWidth * writer.states.bpeCinternal
-                module.add(SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=increment, comment="Inc sgpr offset"))
+                module.add(ti.SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=increment, comment="Inc sgpr offset"))
 
             # TODO StreamK need this packing code???
             # if self.asmCaps["HasWMMA"] and kernel["EnableMatrixInstructionStore"] and kernel["ProblemType"]["DestDataType"].isHalf() and (not kernel["ProblemType"]["HighPrecisionAccumulate"]):
@@ -837,7 +840,7 @@ class StreamK(Component):
         ss.checkInTempVgprC()
 
         if writer.states.serializedStore:
-            module.add(SNop(0, "1 wait state required when next inst writes vgprs held by previous dwordx4 store inst"))
+            module.add(ti.SNop(0, "1 wait state required when next inst writes vgprs held by previous dwordx4 store inst"))
 
         # Update the store cnt to preLoopVmcntDict for Case2/3
         # (No need to update for Case0:'Undefined' or Case4:'OrdNLL_B1_Store')
@@ -1088,8 +1091,8 @@ class StreamK(Component):
             (ss.optSingleColVgpr, ss.optSharedColVgpr, ss.optSGPRUsage, ss.optSrdIncForRow))
 
         if kernel["StoreSyncOpt"]:
-            module.add(SSleep(kernel["StoreSyncOpt"] - 1, "optimization: sync and wait"))
-            module.add(SBarrier())
+            module.add(ti.SSleep(kernel["StoreSyncOpt"] - 1, "optimization: sync and wait"))
+            module.add(ti.SBarrier())
 
         # comment tt1, tt0, vc1, vc0
         # tt = thread tile, vc=vector component
@@ -1133,11 +1136,11 @@ class StreamK(Component):
         # for the top-left corner this thread will write.    These are not changed
         # across all the store loop iters.
         if writer.db["ConservativeWaitCnt"] & 0x10:
-            module.add(SBarrier("debug"))
-            module.add(SWaitCnt(vmcnt=0, comment="ConservativeWaitCnt"))
+            module.add(ti.SBarrier("debug"))
+            module.add(ti.SWaitCnt(vmcnt=0, comment="ConservativeWaitCnt"))
             if writer.states.archCaps["SeparateVscnt"]:
-                module.add(SWaitCnt(vscnt=0, comment="writes"))
-            module.add(SBarrier("debug"))
+                module.add(ti.SWaitCnt(vscnt=0, comment="writes"))
+            module.add(ti.SBarrier("debug"))
         if not edge and writer.db["ForceEdgeStores"]>=2:
             module.add(self.parentWriter.getBomb()) # should not get here
         if edge and writer.db["AssertNoEdge"]:
@@ -1166,12 +1169,12 @@ class StreamK(Component):
             storeWidth = kernel["StoreVectorWidth"]
             # storeWidth = 2
             if batchIdx == 0 and elementIdx == 0:
-                module.add(staticMultiply(vgpr(addrCVgpr), vgpr("Serial"), storeWidth * writer.states.bpeCinternal, sgpr(tmpS01)))
+                module.add(mathti.staticMultiply(vgpr(addrCVgpr), vgpr("Serial"), storeWidth * writer.states.bpeCinternal, sgpr(tmpS01)))
                 # kStr += inst("v_mul_lo_u32", , "Partials buffer address")
-                module.add(SMovB32(dst=sgpr(tmpS01), src=0, comment="Init sgpr offset"))
+                module.add(ti.SMovB32(dst=sgpr(tmpS01), src=0, comment="Init sgpr offset"))
             else:
                 increment = (kernel["WavefrontSize"] * 4) * storeWidth * writer.states.bpeCinternal
-                module.add(SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=increment, comment="Inc sgpr offset"))
+                module.add(ti.SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=increment, comment="Inc sgpr offset"))
 
             module.add(writer.readInput(kernel, ss, 'WS', kernel["ProblemType"]["ComputeDataType"], addrCalc, vc0, data, gwvw, addrCVgpr, sgpr(tmpS01)))
             loadsIssued += 1
@@ -1196,7 +1199,7 @@ class StreamK(Component):
                         #     accVgprRead.addCode(tempStr.replace("ValuC","L2GC"))
 
             if not kernel["MIArchVgpr"]:
-                module.add(SNop(1, "2 wait states required before reading vgpr"))
+                module.add(ti.SNop(1, "2 wait states required before reading vgpr"))
 
         ########################################
         # Not Atomic
@@ -1209,19 +1212,19 @@ class StreamK(Component):
                 # covers sgemm, gemm_ex(HHS/HSS/BBS/BSS (HPA=T)), int8 (int8x4?)
                 if kernel["ProblemType"]["ComputeDataType"].isInt32() or kernel["ProblemType"]["ComputeDataType"].isSingle():
                     if writer.db["ForceExpectedValue"]:
-                        module.add(VMovB32(dst=vgpr("ValuC+%u"%sumIdxV), src=writer.db["ValueCExpectedValue"], comment="force expected value"))
+                        module.add(ti.VMovB32(dst=vgpr("ValuC+%u"%sumIdxV), src=writer.db["ValueCExpectedValue"], comment="force expected value"))
                     if writer.db["ForceVSerial"]:
-                        module.add(VMovB32(dst=vgpr("ValuC+%u"%sumIdxV), src=vgpr("Serial"), comment="force expected value to serial"))
+                        module.add(ti.VMovB32(dst=vgpr("ValuC+%u"%sumIdxV), src=vgpr("Serial"), comment="force expected value to serial"))
                     if writer.db["CheckValueC"]:
-                        module.add(SMovB32(dst=sgpr(tmpS01), src=writer.db["ValueCExpectedValue"], comment="Move expected value"))
+                        module.add(ti.SMovB32(dst=sgpr(tmpS01), src=writer.db["ValueCExpectedValue"], comment="Move expected value"))
                         module.add(writer.getCmpAssert(writer.asmAssert.eq, vgpr("ValuC+%u"%sumIdxV), sgpr(tmpS01)))
 
         ########################################
         # wait for batched load
         if not interleaveStoreVmcnt: # beta and
-            module.add(SWaitCnt(vmcnt=0, comment="wait C"))
+            module.add(ti.SWaitCnt(vmcnt=0, comment="wait C"))
             if writer.states.archCaps["SeparateVscnt"]:
-                module.add(SWaitCnt(vscnt=0, comment="writes"))
+                module.add(ti.SWaitCnt(vscnt=0, comment="writes"))
 
             # PreLoop LWVmcnt: When a vmcnt(cnt) is inserted here, means the GlobalLoad for PAP is finished
             # So the preLoopVmcntDict value is meaningless since we no longer need to wait in next PreLoop
@@ -1241,17 +1244,17 @@ class StreamK(Component):
         #     kStr += inst("v_mov_b32", vgpr(vgprFp32Nan), "0x7fff0000", "fp32 Nan" )
         #     kStr += inst("v_mov_b32", vgpr(vgprBf16Inc), "0x7fff", "rounding bias for bfloat16" )
         if kernel["ProblemType"]["DestDataType"].isBFloat16() and kernel["ProblemType"]["HighPrecisionAccumulate"]:
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBf16Mask), "0xffff0000", "mask for pack two bfloat16 element to 32bit" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprFp32Nan), "0x7fff0000", "fp32 Nan" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBf16Inc), "0x7fff", "rounding bias for bfloat16" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBf16Mask), "0xffff0000", "mask for pack two bfloat16 element to 32bit" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprFp32Nan), "0x7fff0000", "fp32 Nan" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBf16Inc), "0x7fff", "rounding bias for bfloat16" ))
         elif kernel["ProblemType"]["DestDataType"].isFloat8() and kernel["ProblemType"]["HighPrecisionAccumulate"]:
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprFp8NanInf), "0x207", "Nan and +/- inf" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprFp8Max), "0x43700000", "Fp8 Max value 240 as float32" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprFp8Min), "0xc3700000", "Fp8 Min value -240 as float32" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprFp8NanInf), "0x207", "Nan and +/- inf" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprFp8Max), "0x43700000", "Fp8 Max value 240 as float32" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprFp8Min), "0xc3700000", "Fp8 Min value -240 as float32" ))
         elif kernel["ProblemType"]["DestDataType"].isBFloat8() and kernel["ProblemType"]["HighPrecisionAccumulate"]:
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBF8NanInf), "0x207", "Nan and +/- inf" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBF8Max), "0x47600000", "BF8 Max value 57344 as float32" ))
-            module.add(VMovB32(vgpr(cvtVgprStruct.vgprBF8Min), "0xc7600000", "BF8 Min value -57344 as float32" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBF8NanInf), "0x207", "Nan and +/- inf" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBF8Max), "0x47600000", "BF8 Max value 57344 as float32" ))
+            module.add(ti.VMovB32(vgpr(cvtVgprStruct.vgprBF8Min), "0xc7600000", "BF8 Min value -57344 as float32" ))
 
         # DestDataType for 8bit Float can only be F8 or B8
         # if kernel["ProblemType"]["DestDataType"].isFloat8() or kernel["ProblemType"]["DestDataType"].isBFloat8(): # F8 is always HPA
@@ -1314,7 +1317,7 @@ class StreamK(Component):
                 #print "wmvcnt=", vmcnt
                 module.addSpaceLine()
                 # if not atomicAddC:
-                module.add(SWaitCnt(vmcnt=vmcnt, comment="wait C (interleaved) {}".format(vmComment)))
+                module.add(ti.SWaitCnt(vmcnt=vmcnt, comment="wait C (interleaved) {}".format(vmComment)))
 
                 # PreLoop LWVmcnt: When a vmcnt(cnt) is inserted here, means the GlobalLoad for PAP is finished
                 # So the preLoopVmcntDict value is meaningless since we no longer need to wait in next PreLoop
@@ -1336,7 +1339,7 @@ class StreamK(Component):
                                 module.add(VLShiftRightB32(dst=vgpr(dataV), shiftHex=16, src=vgpr(dataV), \
                                     comment="shift 16bit to get next half of packed ValueC"))
                             # dataV+0 = new c = old c*beta + rC
-                            module.add(VAddPKF16(dst=vgpr("ValuC+%u"%(sumIdxV)), src0=vgpr(dataV), src1=vgpr("ValuC+%u"%(sumIdxV)), \
+                            module.add(ti.VAddPKF16(dst=vgpr("ValuC+%u"%(sumIdxV)), src0=vgpr(dataV), src1=vgpr("ValuC+%u"%(sumIdxV)), \
                                 comment="sum*alpha + C*beta"))
                         elif sumIdxV%2==0 or (not ss.cfg.halfDataRegPerVI and gwvw==1):
                             newSumIdxV = sumIdxV // 2 - writer.states.c.startVgprValu
@@ -1344,7 +1347,7 @@ class StreamK(Component):
                             # kStr += inst("v_pk_mul_f16", vgpr(dataV), sgpr("Beta"), vgpr(dataV+0), \
                             #         "%s = C*beta ei=%u vi=%u"%(vgpr(dataV),elementIdx, vi))
                             # dataV+0 = new c = old c*beta + rC
-                            module.add(VAddPKF16(dst=vgpr("ValuC+%u"%(newSumIdxV)), src0=vgpr(dataV), src1=vgpr("ValuC+%u"%(newSumIdxV)), \
+                            module.add(ti.VAddPKF16(dst=vgpr("ValuC+%u"%(newSumIdxV)), src0=vgpr(dataV), src1=vgpr("ValuC+%u"%(newSumIdxV)), \
                                 comment="sum*alpha + C*beta"))
                         else:
                             pass # add will have been done previously
@@ -1382,9 +1385,9 @@ class StreamK(Component):
                         #     kStr += inst("v_and_b32", vgpr(tmpVgpr), vgpr(dataCExternal), vgpr(vgprBf16Mask), "convert bf16 to fp32")
                         # else:
                         #     kStr += inst("v_lshlrev_b32", vgpr(tmpVgpr), "16", vgpr(dataCExternal), "convert bf16 to fp32" )
-                        module.add(VCvtBF16toFP32(dst=(tmpVgpr), src=(dataCExternal), vgprMask=(cvtVgprStruct.vgprBf16Mask), vi=(vi)))
+                        module.add(ti.VCvtBF16toFP32(dst=(tmpVgpr), src=(dataCExternal), vgprMask=(cvtVgprStruct.vgprBf16Mask), vi=(vi)))
                         newSumIdxV = sumIdxV - writer.states.c.startVgprValu
-                        module.add(VAddF32(dst=vgpr("ValuC+%u"%sumIdxV), src0=vgpr("ValuC+%u"%sumIdxV), src1=vgpr(tmpVgpr), comment="accum partials"))
+                        module.add(ti.VAddF32(dst=vgpr("ValuC+%u"%sumIdxV), src0=vgpr("ValuC+%u"%sumIdxV), src1=vgpr(tmpVgpr), comment="accum partials"))
 
                 # float8 precision
                 elif kernel["ProblemType"]["DestDataType"].isFloat8():
@@ -1394,19 +1397,19 @@ class StreamK(Component):
                         isPK = False
                         if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
                             sb = SelectBit.BYTE_0 if self.gwvw == 1 else SelectBit.BYTE_2
-                            module.add(VCvtFP8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
+                            module.add(ti.VCvtFP8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
                         # Original packed route
                         elif vi%2 == 1:
                             continue
                         else:
                             isPK = True
                             sb = SelectBit.WORD_0 if vi == 0 else SelectBit.WORD_1
-                            module.add(VCvtPkFP8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
-                        module.add(SNop(waitState=0))
+                            module.add(ti.VCvtPkFP8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
+                        module.add(ti.SNop(waitState=0))
                         if kernel["ProblemType"]["ComputeDataType"].isSingle():
-                            module.add(VAddF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr("ValuC+%u"%newSumIdxV), src1=vgpr(tmpVgpr), comment="accum partials"))
+                            module.add(ti.VAddF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr("ValuC+%u"%newSumIdxV), src1=vgpr(tmpVgpr), comment="accum partials"))
                             if isPK:
-                                module.add(VAddF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr("ValuC+%u"%(newSumIdxV+1)), src1=vgpr(tmpVgpr+1), comment="accum partials"))
+                                module.add(ti.VAddF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr("ValuC+%u"%(newSumIdxV+1)), src1=vgpr(tmpVgpr+1), comment="accum partials"))
 
                 # bfloat8 precision
                 elif kernel["ProblemType"]["DestDataType"].isBFloat8():
@@ -1416,46 +1419,46 @@ class StreamK(Component):
                         isPK = False
                         if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
                             sb = SelectBit.BYTE_0 if self.gwvw == 1 else SelectBit.BYTE_2
-                            module.add(VCvtBF8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
+                            module.add(ti.VCvtBF8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
                         # Original packed route
                         elif vi%2 == 1:
                             continue
                         else:
                             isPK = True
                             sb = SelectBit.WORD_0 if vi == 0 else SelectBit.WORD_1
-                            module.add(VCvtPkBF8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
-                        module.add(SNop(waitState=0))
+                            module.add(ti.VCvtPkBF8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
+                        module.add(ti.SNop(waitState=0))
                         if kernel["ProblemType"]["ComputeDataType"].isSingle():
-                            module.add(VAddF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr("ValuC+%u"%newSumIdxV), src1=vgpr(tmpVgpr), comment="accum partials"))
+                            module.add(ti.VAddF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr("ValuC+%u"%newSumIdxV), src1=vgpr(tmpVgpr), comment="accum partials"))
                             if isPK:
-                                module.add(VAddF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr("ValuC+%u"%(newSumIdxV+1)), src1=vgpr(tmpVgpr+1), comment="accum partials"))
+                                module.add(ti.VAddF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr("ValuC+%u"%(newSumIdxV+1)), src1=vgpr(tmpVgpr+1), comment="accum partials"))
 
                 elif kernel["ProblemType"]["ComputeDataType"].isSingle():
                     newSumIdxV = sumIdxV - writer.states.c.startVgprValu
-                    module.add(VAddF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr("ValuC+%u"%newSumIdxV), src1=vgpr(dataV+0), comment="accum partials"))
+                    module.add(ti.VAddF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr("ValuC+%u"%newSumIdxV), src1=vgpr(dataV+0), comment="accum partials"))
 
                 elif kernel["ProblemType"]["ComputeDataType"].isInt32():
                     newSumIdxV = sumIdxV - writer.states.c.startVgprValu
                     # assume we will need to replace v_mac_f32 with v_add_u32 and s_mul_lo_i32
                     # v_mad_i32_i24
-                    module.add(VAddU32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(dataV+0), src1=vgpr("ValuC+%u"%newSumIdxV), comment="accum partials"))
+                    module.add(ti.VAddU32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(dataV+0), src1=vgpr("ValuC+%u"%newSumIdxV), comment="accum partials"))
 
                 elif kernel["ProblemType"]["ComputeDataType"].isDouble():
                     newSumIdxV = sumIdxV * 2 - writer.states.c.startVgprValu
                     # dataV+0 = new c = old c*beta
-                    module.add(VAddF64(dst=vgpr("ValuC+%u"%(newSumIdxV*2),2), src0=vgpr("ValuC+%u"%(newSumIdxV*2),2), src1=vgpr(dataV+0,2), comment="accum partials"))
+                    module.add(ti.VAddF64(dst=vgpr("ValuC+%u"%(newSumIdxV*2),2), src0=vgpr("ValuC+%u"%(newSumIdxV*2),2), src1=vgpr(dataV+0,2), comment="accum partials"))
 
                 # single precision complex
                 elif kernel["ProblemType"]["ComputeDataType"].isSingleComplex():
                     newSumIdxV = sumIdxV * 2 - writer.states.c.startVgprValu
-                    module.add(VAddF32(dst=vgpr("ValuC+%u"%(newSumIdxV*2)), src0=vgpr("ValuC+%u"%(newSumIdxV*2)), src1=vgpr(dataV+0), comment="accum partials real"))
-                    module.add(VAddF32(dst=vgpr("ValuC+%u"%(newSumIdxV*2+1)), src0=vgpr("ValuC+%u"%(newSumIdxV*2+1)), src1=vgpr(dataV+1), comment="accum partials imag"))
+                    module.add(ti.VAddF32(dst=vgpr("ValuC+%u"%(newSumIdxV*2)), src0=vgpr("ValuC+%u"%(newSumIdxV*2)), src1=vgpr(dataV+0), comment="accum partials real"))
+                    module.add(ti.VAddF32(dst=vgpr("ValuC+%u"%(newSumIdxV*2+1)), src0=vgpr("ValuC+%u"%(newSumIdxV*2+1)), src1=vgpr(dataV+1), comment="accum partials imag"))
 
                 # double precision complex
                 elif kernel["ProblemType"]["ComputeDataType"].isDoubleComplex():
                     newSumIdxV = sumIdxV * 4 - self.parentWriter.states.c.startVgprValu
-                    module.add(VAddF64(dst=vgpr("ValuC+%u"%(newSumIdxV*4+0),2), src0=vgpr("ValuC+%u"%(newSumIdxV*4+0),2), src1=vgpr(dataV+0,2), comment="accum partials real"))
-                    module.add(VAddF64(dst=vgpr("ValuC+%u"%(newSumIdxV*4+2),2), src0=vgpr("ValuC+%u"%(newSumIdxV*4+2),2), src1=vgpr(dataV+2,2), comment="accum partials imag"))
+                    module.add(ti.VAddF64(dst=vgpr("ValuC+%u"%(newSumIdxV*4+0),2), src0=vgpr("ValuC+%u"%(newSumIdxV*4+0),2), src1=vgpr(dataV+0,2), comment="accum partials real"))
+                    module.add(ti.VAddF64(dst=vgpr("ValuC+%u"%(newSumIdxV*4+2),2), src0=vgpr("ValuC+%u"%(newSumIdxV*4+2),2), src1=vgpr(dataV+2,2), comment="accum partials imag"))
 
         ########################################
         # AccVgpr write
@@ -1477,7 +1480,7 @@ class StreamK(Component):
                         #     accVgprRead.addCode(tempStr.replace("ValuC","L2GC"))
 
             if not kernel["MIArchVgpr"]:
-                module.add(SNop(1, "2 wait states required before reading vgpr"))
+                module.add(ti.SNop(1, "2 wait states required before reading vgpr"))
 
         #kStr += self.bomb(5)
         # if self.db["CheckStoreC"]>=0:
@@ -1535,9 +1538,9 @@ class StreamK(Component):
             module.add(self.getEdgeMovInstType()(EXEC(), -1, "full mask -> exec"))
 
         if writer.db["ConservativeWaitCnt"] & 0x40:
-            module.add(SBarrier("debug"))
-            module.add(SWaitCnt(vmcnt=0, vscnt=0, comment="ConservativeWaitCnt"))
-            module.add(SBarrier("debug"))
+            module.add(ti.SBarrier("debug"))
+            module.add(ti.SWaitCnt(vmcnt=0, vscnt=0, comment="ConservativeWaitCnt"))
+            module.add(ti.SBarrier("debug"))
         ########################################
         # End Not Atomic
         ########################################
@@ -1563,7 +1566,7 @@ class StreamK(Component):
         ss.checkInTempVgprC()
 
         if writer.states.serializedStore:
-            module.add(SNop(0, "1 wait state required when next inst writes vgprs held by previous dwordx4 store inst"))
+            module.add(ti.SNop(0, "1 wait state required when next inst writes vgprs held by previous dwordx4 store inst"))
 
         # Update the store cnt to preLoopVmcntDict for Case2/3
         # (No need to update for Case0:'Undefined' or Case4:'OrdNLL_B1_Store')
@@ -1584,9 +1587,9 @@ class StreamKOff(StreamK):
         module = Module("StreamK Off graWorkGroup")
 
         if writer.states.archCaps["WrokGroupIdFromTTM"]:
-            module.add(SMovB32(dst=sgpr("WorkGroup0"), src="ttmp9", comment="workaround"))
-            module.add(SAndB32(dst=sgpr("WorkGroup1"), src0=hex(0xFFFF), src1="ttmp7", comment="workaround"))
-            module.add(SLShiftRightB32(dst=sgpr("WorkGroup2"), shiftHex=hex(0x10), src="ttmp7"))
+            module.add(ti.SMovB32(dst=sgpr("WorkGroup0"), src="ttmp9", comment="workaround"))
+            module.add(ti.SAndB32(dst=sgpr("WorkGroup1"), src0=hex(0xFFFF), src1="ttmp7", comment="workaround"))
+            module.add(ti.SLShiftRightB32(dst=sgpr("WorkGroup2"), shiftHex=hex(0x10), src="ttmp7"))
 
         return module
 
@@ -1598,8 +1601,8 @@ class StreamKOff(StreamK):
         module = Module("StreamK Off graAddresses")
 
         tc = tP["tensorChar"]
-        module.add(VMovB32(dst=vgpr(vTmp+0), src=sgpr("Address%s+0" % tc)))
-        module.add(VMovB32(dst=vgpr(vTmp+1), src=sgpr("Address%s+1" % tc)))
+        module.add(ti.VMovB32(dst=vgpr(vTmp+0), src=sgpr("Address%s+0" % tc)))
+        module.add(ti.VMovB32(dst=vgpr(vTmp+1), src=sgpr("Address%s+1" % tc)))
 
         return module
 
@@ -1620,10 +1623,10 @@ class StreamKOff(StreamK):
 
         if kernel["NoTailLoop"] and kernel["AssertSummationElementMultiple"] % kernel["DepthU"] != 0:
             # round up SizesSum/DepthU for noTailLoop case
-            module.add(SAddI32(dst=sgpr(quotient), src0=(divisor - 1), src1=sgpr(dividend), comment="round up SizeSum / DepthU" ))
-            module.add(scalarStaticDivideAndRemainder(qReg=quotient, rReg=None, dReg=quotient, divisor=divisor, tmpSgprRes=tmpSgprInfo, doRemainder=0))
+            module.add(ti.SAddI32(dst=sgpr(quotient), src0=(divisor - 1), src1=sgpr(dividend), comment="round up SizeSum / DepthU" ))
+            module.add(mathti.scalarStaticDivideAndRemainder(qReg=quotient, rReg=None, dReg=quotient, divisor=divisor, tmpSgprRes=tmpSgprInfo, doRemainder=0))
         else:
-            module.add(scalarStaticDivideAndRemainder(qReg=quotient, rReg=None, dReg=dividend, divisor=divisor, tmpSgprRes=tmpSgprInfo, doRemainder=0))
+            module.add(mathti.scalarStaticDivideAndRemainder(qReg=quotient, rReg=None, dReg=dividend, divisor=divisor, tmpSgprRes=tmpSgprInfo, doRemainder=0))
 
         return module
 
@@ -1644,12 +1647,12 @@ class StreamKBasic(StreamK):
         xccMapping = Component.XCCMapping.find(writer)
         module.add(xccMapping(writer, kernel))
 
-        module.add(SMovB32(dst=sgpr("StreamKIdx"), src=sgpr("WorkGroup0"), comment="Save original StreamK index"))
+        module.add(ti.SMovB32(dst=sgpr("StreamKIdx"), src=sgpr("WorkGroup0"), comment="Save original StreamK index"))
         # Basic SK
-        module.add(SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("SKItersPerWG"), comment="StreamK starting iteration"))
-        module.add(SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIter"), src1=sgpr("SKItersPerWG"), comment="StreamK ending iteration"))
-        module.add(SMinU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr("TotalIters"), comment="Cap ending iter at total iters"))
-        module.add(SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("StreamKIterEnd"), comment="Make sure there's work to do"))
+        module.add(ti.SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("SKItersPerWG"), comment="StreamK starting iteration"))
+        module.add(ti.SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIter"), src1=sgpr("SKItersPerWG"), comment="StreamK ending iteration"))
+        module.add(ti.SMinU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr("TotalIters"), comment="Cap ending iter at total iters"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("StreamKIterEnd"), comment="Make sure there's work to do"))
         module.add(writer.longBranchScc0(Label("KernelEnd", ""), posNeg=1))
         module.add(writer.undefineSgpr("TotalIters"))
 
@@ -1664,7 +1667,7 @@ class StreamKBasic(StreamK):
         module.add(self.skTileIndex(writer, kernel, sTmp, tPA, tPB))
 
         # Increment StreamK iteration
-        module.add(SMovB32(dst=sgpr("StreamKIter"), src=sgpr(sTmp+2), comment="Increment StreamK Iteration"))
+        module.add(ti.SMovB32(dst=sgpr("StreamKIter"), src=sgpr(sTmp+2), comment="Increment StreamK Iteration"))
 
         module.add(self.skIndexToWG(writer, kernel, sTmp))
 
@@ -1716,31 +1719,31 @@ class StreamKTwoTileOriginal(StreamK):
         xccMapping = Component.XCCMapping.find(writer)
         module.add(xccMapping(writer, kernel))
 
-        module.add(SMovB32(dst=sgpr("StreamKIdx"), src=sgpr("WorkGroup0"), comment="Save original StreamK index"))
+        module.add(ti.SMovB32(dst=sgpr("StreamKIdx"), src=sgpr("WorkGroup0"), comment="Save original StreamK index"))
         # Two-tile SK (SK first)
         # iter count after all extra iters have been distributed
-        module.add(SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("SKItersPerWG"), comment="StreamK starting iteration (case: after extra iters)"))
-        module.add(SAddU32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIter"), src1=sgpr("skExtraIters"), comment="Add extra iters"))
-        module.add(SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIter"), src1=sgpr("SKItersPerWG"), comment="StreamK ending iteration (case: after extra iters)"))
+        module.add(ti.SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("SKItersPerWG"), comment="StreamK starting iteration (case: after extra iters)"))
+        module.add(ti.SAddU32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIter"), src1=sgpr("skExtraIters"), comment="Add extra iters"))
+        module.add(ti.SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIter"), src1=sgpr("SKItersPerWG"), comment="StreamK ending iteration (case: after extra iters)"))
         # iter count before all extra iters have been distributed
         # sTmp+1 = SKItersPerWG + 1 extra iteration
         sIter = writer.sgprPool.checkOut(2, "SKIter", preventOverflow=False)
-        module.add(SAddU32(dst=sgpr(sIter+1), src0=sgpr("SKItersPerWG"), src1=1, comment="Spread out extra iterations"))
-        module.add(SMulI32(dst=sgpr(sIter), src0=sgpr("StreamKIdx"), src1=sgpr(sIter+1), comment="StreamK starting iteration (case: before extra iters)"))
-        module.add(SAddU32(dst=sgpr(sIter+1), src0=sgpr(sIter), src1=sgpr(sIter+1), comment="StreamK ending iteration (case: before extra iters)"))
+        module.add(ti.SAddU32(dst=sgpr(sIter+1), src0=sgpr("SKItersPerWG"), src1=1, comment="Spread out extra iterations"))
+        module.add(ti.SMulI32(dst=sgpr(sIter), src0=sgpr("StreamKIdx"), src1=sgpr(sIter+1), comment="StreamK starting iteration (case: before extra iters)"))
+        module.add(ti.SAddU32(dst=sgpr(sIter+1), src0=sgpr(sIter), src1=sgpr(sIter+1), comment="StreamK ending iteration (case: before extra iters)"))
         # select correct start/end iteration index
-        module.add(SCmpLtU32(src0=sgpr("StreamKIdx"), src1=sgpr("skExtraIters"), comment="Check if lane gets an extra iteration"))
-        module.add(SCSelectB32(dst=sgpr("StreamKIter"), src0=sgpr(sIter), src1=sgpr("StreamKIter"), comment="Set start iter"))
-        module.add(SCSelectB32(dst=sgpr("StreamKIterEnd"), src0=sgpr(sIter+1), src1=sgpr("StreamKIterEnd"), comment="Set end iter"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKIdx"), src1=sgpr("skExtraIters"), comment="Check if lane gets an extra iteration"))
+        module.add(ti.SCSelectB32(dst=sgpr("StreamKIter"), src0=sgpr(sIter), src1=sgpr("StreamKIter"), comment="Set start iter"))
+        module.add(ti.SCSelectB32(dst=sgpr("StreamKIterEnd"), src0=sgpr(sIter+1), src1=sgpr("StreamKIterEnd"), comment="Set end iter"))
         writer.sgprPool.checkIn(sIter)
         # clamp to end of sk iterations
         # TODO maybe remove clamp, since extra iters code should guarantee total iterations match
         sTmp = writer.sgprPool.checkOut(1, "TotalSKIters", preventOverflow=False)
-        module.add(SMulI32(dst=sgpr(sTmp), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Total SK iters"))
-        module.add(SMinU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr(sTmp), comment="Cap ending iter at total SK iters"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Total SK iters"))
+        module.add(ti.SMinU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr(sTmp), comment="Cap ending iter at total SK iters"))
         writer.sgprPool.checkIn(sTmp)
         # check if this WG has no work to do
-        module.add(SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("TotalIters"), comment="Make sure there's work to do"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("TotalIters"), comment="Make sure there's work to do"))
         module.add(writer.longBranchScc0(Label("KernelEnd", ""), posNeg=1))
 
         return module
@@ -1755,26 +1758,26 @@ class StreamKTwoTileOriginal(StreamK):
 
         # local end (DP tile)
         # TODO This line isnt needed?
-        module.add(SSubU32(dst=sgpr(sTmp+3), src0=sgpr(sTmp+2), src1=sgpr(sTmp+1), comment="Local iteration end (DP tile)"))
+        module.add(ti.SSubU32(dst=sgpr(sTmp+3), src0=sgpr(sTmp+2), src1=sgpr(sTmp+1), comment="Local iteration end (DP tile)"))
         # select correct local end
-        module.add(SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("StreamKIterEnd"), comment="Check if in SK or DP section"))
-        module.add(SCSelectB32(dst=sgpr("StreamKLocalEnd"), src0=sgpr("StreamKLocalEnd"), src1=sgpr(sTmp+3), comment="Apply SK or DP end iteration"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("StreamKIterEnd"), comment="Check if in SK or DP section"))
+        module.add(ti.SCSelectB32(dst=sgpr("StreamKLocalEnd"), src0=sgpr("StreamKLocalEnd"), src1=sgpr(sTmp+3), comment="Apply SK or DP end iteration"))
 
         # Increment StreamK iteration
         # If moving from SK to DP, next iteration is first DP
         # sTmp = offset to first DP tile
-        module.add(SMulI32(dst=sgpr(sTmp+3), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Offset to first DP tile"))
-        module.add(SMulI32(dst=sgpr(sTmp+1), src0=sgpr("StreamKIdx"), src1=sgpr("ItersPerTile"), comment="WG tile offset"))
-        module.add(SAddU32(dst=sgpr(sTmp+3), src0=sgpr(sTmp+3), src1=sgpr(sTmp+1), comment="DP start offset + WG offset"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp+3), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Offset to first DP tile"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp+1), src0=sgpr("StreamKIdx"), src1=sgpr("ItersPerTile"), comment="WG tile offset"))
+        module.add(ti.SAddU32(dst=sgpr(sTmp+3), src0=sgpr(sTmp+3), src1=sgpr(sTmp+1), comment="DP start offset + WG offset"))
         # If already in DP, add dpShift
-        module.add(SMulI32(dst=sgpr(sTmp+1), src0=sgpr("skGrid"), src1=sgpr("ItersPerTile"), comment="DP iterations shift"))
-        module.add(SAddU32(dst=sgpr(sTmp+1), src0=sgpr(sTmp+1), src1=sgpr("StreamKIter"), comment="Add DP shift"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp+1), src0=sgpr("skGrid"), src1=sgpr("ItersPerTile"), comment="DP iterations shift"))
+        module.add(ti.SAddU32(dst=sgpr(sTmp+1), src0=sgpr(sTmp+1), src1=sgpr("StreamKIter"), comment="Add DP shift"))
         # Save DP iter in sTmp
-        module.add(SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("StreamKIterEnd"), comment="Check if in SK or DP section"))
-        module.add(SCSelectB32(dst=sgpr(sTmp+3), src0=sgpr(sTmp+3), src1=sgpr(sTmp+1), comment="Select first DP tile, or add DP shift"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("StreamKIterEnd"), comment="Check if in SK or DP section"))
+        module.add(ti.SCSelectB32(dst=sgpr(sTmp+3), src0=sgpr(sTmp+3), src1=sgpr(sTmp+1), comment="Select first DP tile, or add DP shift"))
         # If staying in SK portion, next iteration is sTmp+2
-        module.add(SCmpLtU32(src0=sgpr(sTmp+2), src1=sgpr("StreamKIterEnd"), comment="Check if there are more SK tiles"))
-        module.add(SCSelectB32(dst=sgpr("StreamKIter"), src0=sgpr(sTmp+2), src1=sgpr(sTmp+3), comment="Select next SK or DP tile"))
+        module.add(ti.SCmpLtU32(src0=sgpr(sTmp+2), src1=sgpr("StreamKIterEnd"), comment="Check if there are more SK tiles"))
+        module.add(ti.SCSelectB32(dst=sgpr("StreamKIter"), src0=sgpr(sTmp+2), src1=sgpr(sTmp+3), comment="Select next SK or DP tile"))
 
         module.add(self.skIndexToWG(writer, kernel, sTmp))
 
@@ -1827,44 +1830,44 @@ class StreamKTwoTileDPFirst(StreamK):
         xccMapping = Component.XCCMapping.find(writer)
         module.add(xccMapping(writer, kernel))
 
-        module.add(SMovB32(dst=sgpr("StreamKIdx"), src=sgpr("WorkGroup0"), comment="Save original StreamK index"))
+        module.add(ti.SMovB32(dst=sgpr("StreamKIdx"), src=sgpr("WorkGroup0"), comment="Save original StreamK index"))
         # Two-tile SK (DP first)
         # Do DP tiles before SK
         skInitDone = Label("SK_InitDone", "")
-        module.add(SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("ItersPerTile"), comment="DP starting iteration (case: DP work to do)"))
-        module.add(SMovB32(dst=sgpr("StreamKIterEnd"), src=sgpr("TotalIters"), comment="DP ending iteration (case: only DP work to do)"))
+        module.add(ti.SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("ItersPerTile"), comment="DP starting iteration (case: DP work to do)"))
+        module.add(ti.SMovB32(dst=sgpr("StreamKIterEnd"), src=sgpr("TotalIters"), comment="DP ending iteration (case: only DP work to do)"))
         sTmp = writer.sgprPool.checkOut(1, "TotalSKIters", preventOverflow=False)
-        module.add(SMulI32(dst=sgpr(sTmp), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Total SK iters"))
-        module.add(SCmpLtU32(src0=sgpr(sTmp), src1=sgpr("TotalIters"), comment="Check if there are DP tiles to do"))
-        module.add(SCBranchSCC1(labelName=skInitDone.getLabelName(), comment="Done init"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Total SK iters"))
+        module.add(ti.SCmpLtU32(src0=sgpr(sTmp), src1=sgpr("TotalIters"), comment="Check if there are DP tiles to do"))
+        module.add(ti.SCBranchSCC1(labelName=skInitDone.getLabelName(), comment="Done init"))
         writer.sgprPool.checkIn(sTmp)
 
         # If there are no DP tiles to do, regular SK init
         # iter count after all extra iters have been distributed
-        module.add(SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("SKItersPerWG"), comment="StreamK starting iteration (case: after extra iters)"))
-        module.add(SAddU32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIter"), src1=sgpr("skExtraIters"), comment="Add extra iters"))
-        module.add(SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIter"), src1=sgpr("SKItersPerWG"), comment="StreamK ending iteration (case: after extra iters)"))
+        module.add(ti.SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("SKItersPerWG"), comment="StreamK starting iteration (case: after extra iters)"))
+        module.add(ti.SAddU32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIter"), src1=sgpr("skExtraIters"), comment="Add extra iters"))
+        module.add(ti.SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIter"), src1=sgpr("SKItersPerWG"), comment="StreamK ending iteration (case: after extra iters)"))
         # iter count before all extra iters have been distributed
         # sTmp+1 = SKItersPerWG + 1 extra iteration
         sIter = writer.sgprPool.checkOut(2, "SKIter", preventOverflow=False)
-        module.add(SAddU32(dst=sgpr(sIter+1), src0=sgpr("SKItersPerWG"), src1=1, comment="Spread out extra iterations"))
-        module.add(SMulI32(dst=sgpr(sIter), src0=sgpr("StreamKIdx"), src1=sgpr(sIter+1), comment="StreamK starting iteration (case: before extra iters)"))
-        module.add(SAddU32(dst=sgpr(sIter+1), src0=sgpr(sIter), src1=sgpr(sIter+1), comment="StreamK ending iteration (case: before extra iters)"))
+        module.add(ti.SAddU32(dst=sgpr(sIter+1), src0=sgpr("SKItersPerWG"), src1=1, comment="Spread out extra iterations"))
+        module.add(ti.SMulI32(dst=sgpr(sIter), src0=sgpr("StreamKIdx"), src1=sgpr(sIter+1), comment="StreamK starting iteration (case: before extra iters)"))
+        module.add(ti.SAddU32(dst=sgpr(sIter+1), src0=sgpr(sIter), src1=sgpr(sIter+1), comment="StreamK ending iteration (case: before extra iters)"))
         # select correct start/end iteration index
-        module.add(SCmpLtU32(src0=sgpr("StreamKIdx"), src1=sgpr("skExtraIters"), comment="Check if lane gets an extra iteration"))
-        module.add(SCSelectB32(dst=sgpr("StreamKIter"), src0=sgpr(sIter), src1=sgpr("StreamKIter"), comment="Set start iter"))
-        module.add(SCSelectB32(dst=sgpr("StreamKIterEnd"), src0=sgpr(sIter+1), src1=sgpr("StreamKIterEnd"), comment="Set end iter"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKIdx"), src1=sgpr("skExtraIters"), comment="Check if lane gets an extra iteration"))
+        module.add(ti.SCSelectB32(dst=sgpr("StreamKIter"), src0=sgpr(sIter), src1=sgpr("StreamKIter"), comment="Set start iter"))
+        module.add(ti.SCSelectB32(dst=sgpr("StreamKIterEnd"), src0=sgpr(sIter+1), src1=sgpr("StreamKIterEnd"), comment="Set end iter"))
         writer.sgprPool.checkIn(sIter)
         # clamp to end of sk iterations
         # TODO maybe remove clamp, since extra iters code should guarantee total iterations match
         sTmp = writer.sgprPool.checkOut(1, "TotalSKIters", preventOverflow=False)
-        module.add(SMulI32(dst=sgpr(sTmp), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Total SK iters"))
-        module.add(SMinU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr(sTmp), comment="Cap ending iter at total SK iters"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Total SK iters"))
+        module.add(ti.SMinU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr(sTmp), comment="Cap ending iter at total SK iters"))
         writer.sgprPool.checkIn(sTmp)
 
         module.add(skInitDone)
         # check if this WG has no work to do
-        module.add(SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("TotalIters"), comment="Make sure there's work to do"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("TotalIters"), comment="Make sure there's work to do"))
         module.add(writer.longBranchScc0(Label("KernelEnd", ""), posNeg=1))
 
         return module
@@ -1879,48 +1882,48 @@ class StreamKTwoTileDPFirst(StreamK):
 
         skUpdateDone = Label("SK_UpdateDone", "")
         # sTmp+3 = Offset to first SK tile
-        module.add(SMulI32(dst=sgpr(sTmp+3), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Total SK iters"))
-        module.add(SSubU32(dst=sgpr(sTmp+3), src0=sgpr("TotalIters"), src1=sgpr(sTmp+3), comment="Offset to first SK tile"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp+3), src0=sgpr("skTiles"), src1=sgpr("ItersPerTile"), comment="Total SK iters"))
+        module.add(ti.SSubU32(dst=sgpr(sTmp+3), src0=sgpr("TotalIters"), src1=sgpr(sTmp+3), comment="Offset to first SK tile"))
         # If in DP, add dpShift
-        module.add(SMulI32(dst=sgpr(sTmp+1), src0=sgpr("skGrid"), src1=sgpr("ItersPerTile"), comment="DP iterations shift"))
-        module.add(SAddU32(dst=sgpr(sTmp+1), src0=sgpr(sTmp+1), src1=sgpr("StreamKIter"), comment="Add DP shift"))
+        module.add(ti.SMulI32(dst=sgpr(sTmp+1), src0=sgpr("skGrid"), src1=sgpr("ItersPerTile"), comment="DP iterations shift"))
+        module.add(ti.SAddU32(dst=sgpr(sTmp+1), src0=sgpr(sTmp+1), src1=sgpr("StreamKIter"), comment="Add DP shift"))
         # if sTmp+1 < sTmp+3, continue DP (add dpShift)
-        module.add(SCmpLtU32(src0=sgpr(sTmp+1), src1=sgpr(sTmp+3), comment="Check if still in DP section"))
-        module.add(SCBranchSCC1(labelName=skUpdateDone.getLabelName(), comment="Done update"))
+        module.add(ti.SCmpLtU32(src0=sgpr(sTmp+1), src1=sgpr(sTmp+3), comment="Check if still in DP section"))
+        module.add(ti.SCBranchSCC1(labelName=skUpdateDone.getLabelName(), comment="Done update"))
         # if StreamKIter >= sTmp+3, continue SK (add skShift?)
-        module.add(SMovB32(dst=sgpr(sTmp+1), src=sgpr(sTmp+2), comment="SK iterations shift"))
-        module.add(SCmpLeU32(src0=sgpr(sTmp+3), src1=sgpr("StreamKIter"), comment="Check if continuing in SK section"))
-        module.add(SCBranchSCC1(labelName=skUpdateDone.getLabelName(), comment="Done update"))
+        module.add(ti.SMovB32(dst=sgpr(sTmp+1), src=sgpr(sTmp+2), comment="SK iterations shift"))
+        module.add(ti.SCmpLeU32(src0=sgpr(sTmp+3), src1=sgpr("StreamKIter"), comment="Check if continuing in SK section"))
+        module.add(ti.SCBranchSCC1(labelName=skUpdateDone.getLabelName(), comment="Done update"))
         # if sTmp+1 > sTmp+3 and StreamKIter < sTmp+3, switch from DP to SK (add dpShift)
         # iter count after all extra iters have been distributed
-        module.add(SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("SKItersPerWG"), comment="StreamK starting iteration (case: after extra iters)"))
-        module.add(SAddU32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIter"), src1=sgpr("skExtraIters"), comment="Add extra iters"))
-        module.add(SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIter"), src1=sgpr("SKItersPerWG"), comment="StreamK ending iteration (case: after extra iters)"))
+        module.add(ti.SMulI32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIdx"), src1=sgpr("SKItersPerWG"), comment="StreamK starting iteration (case: after extra iters)"))
+        module.add(ti.SAddU32(dst=sgpr("StreamKIter"), src0=sgpr("StreamKIter"), src1=sgpr("skExtraIters"), comment="Add extra iters"))
+        module.add(ti.SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIter"), src1=sgpr("SKItersPerWG"), comment="StreamK ending iteration (case: after extra iters)"))
         # iter count before all extra iters have been distributed
         # sTmp+1 = SKItersPerWG + 1 extra iteration
         sIter = writer.sgprPool.checkOut(2, "SKIter", preventOverflow=0)
-        module.add(SAddU32(dst=sgpr(sIter+1), src0=sgpr("SKItersPerWG"), src1=1, comment="Spread out extra iterations"))
-        module.add(SMulI32(dst=sgpr(sIter), src0=sgpr("StreamKIdx"), src1=sgpr(sIter+1), comment="StreamK starting iteration (case: before extra iters)"))
-        module.add(SAddU32(dst=sgpr(sIter+1), src0=sgpr(sIter), src1=sgpr(sIter+1), comment="StreamK ending iteration (case: before extra iters)"))
+        module.add(ti.SAddU32(dst=sgpr(sIter+1), src0=sgpr("SKItersPerWG"), src1=1, comment="Spread out extra iterations"))
+        module.add(ti.SMulI32(dst=sgpr(sIter), src0=sgpr("StreamKIdx"), src1=sgpr(sIter+1), comment="StreamK starting iteration (case: before extra iters)"))
+        module.add(ti.SAddU32(dst=sgpr(sIter+1), src0=sgpr(sIter), src1=sgpr(sIter+1), comment="StreamK ending iteration (case: before extra iters)"))
         # select correct start/end iteration index
-        module.add(SCmpLtU32(src0=sgpr("StreamKIdx"), src1=sgpr("skExtraIters"), comment="Check if lane gets an extra iteration"))
-        module.add(SCSelectB32(dst=sgpr("StreamKIter"), src0=sgpr(sIter), src1=sgpr("StreamKIter"), comment="Set start iter"))
-        module.add(SCSelectB32(dst=sgpr("StreamKIterEnd"), src0=sgpr(sIter+1), src1=sgpr("StreamKIterEnd"), comment="Set end iter"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKIdx"), src1=sgpr("skExtraIters"), comment="Check if lane gets an extra iteration"))
+        module.add(ti.SCSelectB32(dst=sgpr("StreamKIter"), src0=sgpr(sIter), src1=sgpr("StreamKIter"), comment="Set start iter"))
+        module.add(ti.SCSelectB32(dst=sgpr("StreamKIterEnd"), src0=sgpr(sIter+1), src1=sgpr("StreamKIterEnd"), comment="Set end iter"))
         writer.sgprPool.checkIn(sIter)
-        module.add(SAddU32(dst=sgpr(sTmp+1), src0=sgpr("StreamKIter"), src1=sgpr(sTmp+3), comment="Offset to start of SK section"))
-        module.add(SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr(sTmp+3), comment="Offset to start of SK section"))
+        module.add(ti.SAddU32(dst=sgpr(sTmp+1), src0=sgpr("StreamKIter"), src1=sgpr(sTmp+3), comment="Offset to start of SK section"))
+        module.add(ti.SAddU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr(sTmp+3), comment="Offset to start of SK section"))
         # clamp to end of iterations
         # TODO maybe remove clamp, since extra iters code should guarantee total iterations match
-        module.add(SMinU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr("TotalIters"), comment="Cap ending iter at total SK iters"))
+        module.add(ti.SMinU32(dst=sgpr("StreamKIterEnd"), src0=sgpr("StreamKIterEnd"), src1=sgpr("TotalIters"), comment="Cap ending iter at total SK iters"))
         # check if this WG has no work to do
         # TODO Shouldn't need this check!
-        module.add(SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("TotalIters"), comment="Make sure there's work to do"))
+        module.add(ti.SCmpLtU32(src0=sgpr("StreamKIter"), src1=sgpr("TotalIters"), comment="Make sure there's work to do"))
         module.add(writer.longBranchScc0(Label("KernelEnd", ""), posNeg=1)) # reuse tmp
 
         # If in SK, next iteration is sTmp+2
         # Increment StreamK iteration
         module.add(skUpdateDone)
-        module.add(SMovB32(dst=sgpr("StreamKIter"), src=sgpr(sTmp+1), comment="Store current iteration"))
+        module.add(ti.SMovB32(dst=sgpr("StreamKIter"), src=sgpr(sTmp+1), comment="Store current iteration"))
 
         # Map SK index to WG
         module.add(self.skIndexToWG(writer, kernel, sTmp))
@@ -1930,12 +1933,12 @@ class StreamKTwoTileDPFirst(StreamK):
         # If WG starts tile then set LocalEnd=ItersPerTile to skip fixup step, and set loopCounter to 0 to skip main loop
         # If WG does not start tile, skip to end of persistent loop to check for other SK tile
         alphaLabel = Label("SKAlphaCheck", "")
-        module.add(SBranchIfNotZero("Alpha", kernel["ProblemType"]["ComputeDataType"], alphaLabel))
+        module.add(exti.SBranchIfNotZero("Alpha", kernel["ProblemType"]["ComputeDataType"], alphaLabel))
         # Skip to end if not doing the global write
-        module.add(SCmpEQU32(src0=sgpr("StreamKLocalStart"), src1=0, comment="does wg start tile?"))
+        module.add(ti.SCmpEQU32(src0=sgpr("StreamKLocalStart"), src1=0, comment="does wg start tile?"))
         endLabel = Label("GW_End", "")
         module.add(writer.longBranchScc0(endLabel, posNeg=1))
-        module.add(SMovB32(dst=sgpr("StreamKLocalEnd"), src=sgpr("ItersPerTile"), comment="Skip iterations"))
+        module.add(ti.SMovB32(dst=sgpr("StreamKLocalEnd"), src=sgpr("ItersPerTile"), comment="Skip iterations"))
         module.add(alphaLabel)
 
         writer.sgprPool.checkIn(sTmp)

@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -14,7 +14,7 @@
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IM-
 # PLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO Eti.VENT SHALL THE AUTHORS OR
 # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNE-
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
@@ -24,16 +24,17 @@ import ctypes
 import math
 import struct
 from collections import OrderedDict
-from enum import IntFlag
+from enum import IntFlag, Enum
+from typing import List, Union
+from dataclasses import dataclass
 
-from .TensileInstructions import Module, TextBlock, HolderContainer, RegisterContainer, \
-                          VCC, EXEC, vgpr, sgpr, Holder, fastdeepcopy, DataType, SNop, \
-                          TensileInstructions
-from .TensileInstructions.Enums import *
-from .TensileInstructions.Instructions import *
-from .Common import printExit, printWarning, globalParameters
-
-from dataclasses import dataclass, field
+from .TensileInstructions import Instructions as ti
+from .TensileInstructions.Base import TensileInstructions as TInstr, fastdeepcopy
+from .TensileInstructions.Enums import SelectBit, InstType, UnusedBit
+from .TensileInstructions.Utils import vgpr, sgpr, Holder, DataType
+from .TensileInstructions.Code import Module, TextBlock
+from .TensileInstructions.Containers import HolderContainer, RegisterContainer, SDWAModifiers, EXEC, VCC
+from .Common import printExit, printWarning
 
 ################################################################################
 # How to add an activation
@@ -456,20 +457,20 @@ class ActivationModule:
         module = Module("Abs")
         if cDataType.isHalf() or cDataType.isBFloat16():
             absMagic = "0x7fff7fff" if self.usePK else "0x7fff"
-            module.add(VAndB32(dst=self.vgprPrefix(vgprOut), src0=absMagic, src1=self.vgprPrefix(vgprIn), comment="Remove sign bit"))
+            module.add(ti.VAndB32(dst=self.vgprPrefix(vgprOut), src0=absMagic, src1=self.vgprPrefix(vgprIn), comment="Remove sign bit"))
         elif cDataType.isSingle():
-            module.add(VAndB32(dst=self.vgprPrefix(vgprOut), src0="0x7fffffff", src1=self.vgprPrefix(vgprIn), comment="Remove sign bit"))
+            module.add(ti.VAndB32(dst=self.vgprPrefix(vgprOut), src0="0x7fffffff", src1=self.vgprPrefix(vgprIn), comment="Remove sign bit"))
         elif cDataType.isDouble():
-            module.add(VAndB32(dst=self.vgprPrefix(vgprOut+1), src0="0x7fffffff", src1=self.vgprPrefix(vgprIn+1), comment="Remove sign bit"))
+            module.add(ti.VAndB32(dst=self.vgprPrefix(vgprOut+1), src0="0x7fffffff", src1=self.vgprPrefix(vgprIn+1), comment="Remove sign bit"))
         elif cDataType.isInt32():
             vgprTemp = self.getVgpr(1)
-            module.add(VSubI32(dst=vgpr(Holder(idx=vgprTemp)), src0=0, src1=self.vgprPrefix(vgprIn), comment="x2 = -x"))
+            module.add(ti.VSubI32(dst=vgpr(Holder(idx=vgprTemp)), src0=0, src1=self.vgprPrefix(vgprIn), comment="x2 = -x"))
             if self.saturateI8:
                 vgprTemp2 = self.getVgpr(1)
-                module.add(VMovB32(dst=vgpr(Holder(idx=vgprTemp2)), src=hex(127), comment="value = 127"))
-                module.add(VMed3I32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), src2=vgpr(Holder(idx=vgprTemp2)), comment="y = min(127, max(x, x2))"))
+                module.add(ti.VMovB32(dst=vgpr(Holder(idx=vgprTemp2)), src=hex(127), comment="value = 127"))
+                module.add(ti.VMed3I32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), src2=vgpr(Holder(idx=vgprTemp2)), comment="y = min(127, max(x, x2))"))
             else:
-                module.add(VMaxI32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), comment="y = max(x, x2)"))
+                module.add(ti.VMaxI32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), comment="y = max(x, x2)"))
         else:
             raise RuntimeError("Unsupported data type %s."%cDataType.toDevice("HIP"))
         return module
@@ -479,58 +480,58 @@ class ActivationModule:
         if cDataType.isHalf():
             for i in range(0, 2):
                 select_bit = SelectBit.WORD_0 if i == 0 else SelectBit.WORD_1
-                module.add(VCmpGTF16(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=sgpr(activationAlpha), \
+                module.add(ti.VCmpGTF16(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=sgpr(activationAlpha), \
                            sdwa=SDWAModifiers(src0_sel=select_bit, src1_sel=SelectBit.WORD_0), comment="x > alpha?"))
-                module.add(VMinF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprIn), \
+                module.add(ti.VMinF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprIn), \
                            sdwa=SDWAModifiers(dst_sel=select_bit, dst_unused=UnusedBit.UNUSED_PRESERVE, \
                                               src0_sel=select_bit, src1_sel=select_bit), \
                            comment="min(x, beta)"))
-                module.add(VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=0.0, src1=self.vgprPrefix(vgprOut), \
+                module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=0.0, src1=self.vgprPrefix(vgprOut), \
                            sdwa=SDWAModifiers(dst_sel=select_bit, dst_unused=UnusedBit.UNUSED_PRESERVE, \
                                               src0_sel=select_bit, src1_sel=select_bit), \
                            comment="set x to 0 if <= alpha"))
-            module.add(SNop(waitState=0, comment="1 wait states")) # workaround for emulator
+            module.add(ti.SNop(waitState=0, comment="1 wait states")) # workaround for emulator
         elif cDataType.isSingle():
-            module.add(VCmpGTF32(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=sgpr(activationAlpha), comment="x > alpha ?"))
-            module.add(VMinF32(dst=self.vgprPrefix(vgprIn), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprIn), comment="min(x, beta)"))
-            module.add(VCndMaskB32(dst=self.vgprPrefix(vgprIn), src0=0.0, src1=self.vgprPrefix(vgprIn), comment="set x to 0 if <= alpha"))
+            module.add(ti.VCmpGTF32(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=sgpr(activationAlpha), comment="x > alpha ?"))
+            module.add(ti.VMinF32(dst=self.vgprPrefix(vgprIn), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprIn), comment="min(x, beta)"))
+            module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprIn), src0=0.0, src1=self.vgprPrefix(vgprIn), comment="set x to 0 if <= alpha"))
         elif cDataType.isDouble():
-            module.add(VCmpGTF64(dst=VCC(), src0=self.vgprPrefix(vgprIn, 2), src1=sgpr(activationAlpha, 2), comment="x > alpha ?"))
-            module.add(VMinF64(dst=self.vgprPrefix(vgprIn, 2), src0=sgpr(activationBeta, 2), src1=self.vgprPrefix(vgprIn, 2), comment="min(x, beta)"))
-            module.add(VCndMaskB32(dst=self.vgprPrefix(vgprIn), src0=0, src1=self.vgprPrefix(vgprIn), comment="set x to 0 if <= alpha"))
-            module.add(VCndMaskB32(dst=self.vgprPrefix(vgprIn+1), src0=0, src1=self.vgprPrefix(vgprIn+1), comment="set x to 0 if <= alpha"))
+            module.add(ti.VCmpGTF64(dst=VCC(), src0=self.vgprPrefix(vgprIn, 2), src1=sgpr(activationAlpha, 2), comment="x > alpha ?"))
+            module.add(ti.VMinF64(dst=self.vgprPrefix(vgprIn, 2), src0=sgpr(activationBeta, 2), src1=self.vgprPrefix(vgprIn, 2), comment="min(x, beta)"))
+            module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprIn), src0=0, src1=self.vgprPrefix(vgprIn), comment="set x to 0 if <= alpha"))
+            module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprIn+1), src0=0, src1=self.vgprPrefix(vgprIn+1), comment="set x to 0 if <= alpha"))
         elif cDataType.isInt32():
-            module.add(VCmpGTI32(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=sgpr(activationAlpha), comment="x > alpha ?"))
-            module.add(VMinI32(dst=self.vgprPrefix(vgprIn), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprIn), comment="min(x, beta)"))
-            module.add(VCndMaskB32(dst=self.vgprPrefix(vgprIn), src0=0.0, src1=self.vgprPrefix(vgprIn), comment="set x to 0 if <= alpha"))
+            module.add(ti.VCmpGTI32(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=sgpr(activationAlpha), comment="x > alpha ?"))
+            module.add(ti.VMinI32(dst=self.vgprPrefix(vgprIn), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprIn), comment="min(x, beta)"))
+            module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprIn), src0=0.0, src1=self.vgprPrefix(vgprIn), comment="set x to 0 if <= alpha"))
         return module
 
     def getExpModule(self, cDataType, vgprIn, vgprOut):
-        ti = TensileInstructions()
+        tinstr = TInstr()
         module = Module("Exp")
         if cDataType.isHalf():
             sgprMagic = self.getSgpr(1)
-            module.add(SMovB32(dst=sgpr(Holder(idx=sgprMagic)), src=math.log(math.e,2), comment="exp magic"))
+            module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprMagic)), src=math.log(math.e,2), comment="exp magic"))
             if self.usePK:
-                module.add(VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(Holder(idx=sgprMagic)), src1=self.vgprPrefix(vgprIn), comment="exp step 1"))
+                module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(Holder(idx=sgprMagic)), src1=self.vgprPrefix(vgprIn), comment="exp step 1"))
                 for i in range(0, 2):
                     select_bit = SelectBit.WORD_0 if i == 0 else SelectBit.WORD_1
-                    module.add(VExpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), \
+                    module.add(ti.VExpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), \
                                        sdwa=SDWAModifiers(dst_sel=select_bit, dst_unused=UnusedBit.UNUSED_PRESERVE, \
                                                           src0_sel=select_bit), \
                                        comment="exp step 2"))
-                    if ti.getArchCaps()["TransOpWait"]:
-                        module.add(SNop(waitState=0, comment="1 wait states"))
+                    if tinstr.getArchCaps()["TransOpWait"]:
+                        module.add(ti.SNop(waitState=0, comment="1 wait states"))
             else:
-                module.add(VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(Holder(idx=sgprMagic)), src1=self.vgprPrefix(vgprIn), comment="exp step 1"))
-                module.add(VExpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="exp step 2"))
-                if ti.getArchCaps()["TransOpWait"]:
-                    module.add(SNop(waitState=0, comment="1 wait states"))
+                module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(Holder(idx=sgprMagic)), src1=self.vgprPrefix(vgprIn), comment="exp step 1"))
+                module.add(ti.VExpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="exp step 2"))
+                if tinstr.getArchCaps()["TransOpWait"]:
+                    module.add(ti.SNop(waitState=0, comment="1 wait states"))
         elif cDataType.isSingle():
-            module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=math.log(math.e,2), src1=self.vgprPrefix(vgprIn), comment="exp step 1"))
-            module.add(VExpF32(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="exp step 2" ))
-            if ti.getArchCaps()["TransOpWait"]:
-                module.add(SNop(waitState=0, comment="1 wait states"))
+            module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=math.log(math.e,2), src1=self.vgprPrefix(vgprIn), comment="exp step 1"))
+            module.add(ti.VExpF32(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="exp step 2" ))
+            if tinstr.getArchCaps()["TransOpWait"]:
+                module.add(ti.SNop(waitState=0, comment="1 wait states"))
         else:
             raise RuntimeError("Unsupported data type %s."%cDataType.toDevice("HIP"))
         return module
@@ -543,60 +544,60 @@ class ActivationModule:
             flt16GeluK1Str = HexToStr(cDataType, self.usePK, ActivationMagicNumbers["Float16GeluK1"])
             sgprMagicK1 = self.getSgpr(1)
             sgprPKLiteral = self.getSgpr(1)
-            module.add(SMovB32(dst=sgpr(Holder(idx=sgprMagicK1)), src=flt16GeluK1Str, comment="Float16GeluK1" ))
-            module.add(SMovB32(dst=sgpr(Holder(idx=sgprPKLiteral)), src=coef.f))
+            module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprMagicK1)), src=flt16GeluK1Str, comment="Float16GeluK1" ))
+            module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprPKLiteral)), src=coef.f))
             vgprTemp = self.getVgpr(1)
             if self.usePK:
-                module.add(VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="x * x" ))
-                module.add(VFmaPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=vgpr(Holder(idx=vgprTemp)), src1=sgpr(Holder(idx=sgprMagicK1)), src2=1.0, \
-                                     vop3=VOP3PModifiers(op_sel_hi=[1,1,0,1]), comment="x^2 * k1 + 1"))
-                module.add(VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (x^2 * k1 + 1)"))
+                module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="x * x" ))
+                module.add(ti.VFmaPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=vgpr(Holder(idx=vgprTemp)), src1=sgpr(Holder(idx=sgprMagicK1)), src2=1.0, \
+                                     vop3=ti.VOP3PModifiers(op_sel_hi=[1,1,0,1]), comment="x^2 * k1 + 1"))
+                module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (x^2 * k1 + 1)"))
                 coef = floatUnion(u=ActivationMagicNumbers["FloatGeluK0"])
-                module.add(VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(Holder(idx=sgprPKLiteral)), src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
+                module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(Holder(idx=sgprPKLiteral)), src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
                 module.add(self.getTanhModule(cDataType, Holder(idx=vgprTemp), Holder(idx=vgprTemp), "", ""))
-                module.add(VAddPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), \
-                                     vop3=VOP3PModifiers(op_sel_hi=[0,1,1]), comment="1 + tanh(...)" ))
-                module.add(VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
+                module.add(ti.VAddPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), \
+                                     vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="1 + tanh(...)" ))
+                module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
 
                 if activationAlpha == None:
-                    module.add(VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), \
-                                    vop3=VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...))"))
+                    module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), \
+                                    vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...))"))
                 else:
-                    module.add(VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), \
-                                    vop3=VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...))"))
-                    module.add(VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), \
-                                        vop3=VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...)) * scale"))
+                    module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), \
+                                    vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...))"))
+                    module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), \
+                                        vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...)) * scale"))
 
             else:
-                module.add(VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="x * x" ))
-                module.add(VFmaF16(dst=vgpr(Holder(idx=vgprTemp)), src0=vgpr(Holder(idx=vgprTemp)), src1=sgpr(Holder(idx=sgprMagicK1)), src2=1.0, comment="x^2 * k1 + 1"))
-                module.add(VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (x^2 * k1 + 1)"))
+                module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="x * x" ))
+                module.add(ti.VFmaF16(dst=vgpr(Holder(idx=vgprTemp)), src0=vgpr(Holder(idx=vgprTemp)), src1=sgpr(Holder(idx=sgprMagicK1)), src2=1.0, comment="x^2 * k1 + 1"))
+                module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (x^2 * k1 + 1)"))
                 coef = floatUnion(u=ActivationMagicNumbers["FloatGeluK0"])
-                module.add(VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(Holder(idx=sgprPKLiteral)), src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
+                module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(Holder(idx=sgprPKLiteral)), src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
                 module.add(self.getTanhModule(cDataType, Holder(idx=vgprTemp), Holder(idx=vgprTemp), "", ""))
-                module.add(VAddF16(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), comment="1 + tanh(...)" ))
-                module.add(VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
+                module.add(ti.VAddF16(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), comment="1 + tanh(...)" ))
+                module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
                 if activationAlpha == None:
-                    module.add(VMulF16(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
+                    module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
                 else:
-                    module.add(VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
-                    module.add(VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...)) * scale"))
+                    module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
+                    module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...)) * scale"))
         elif cDataType.isSingle():
             vgprTemp = self.getVgpr(1)
             flt16GeluK1Str = HexToStr(cDataType, self.usePK, ActivationMagicNumbers["FloatGeluK1"])
-            module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=flt16GeluK1Str, src1=self.vgprPrefix(vgprIn), comment="k1 * x"))
-            module.add(VFmaF32(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), src2=1.0, comment="1 + (k1 * x * x)"))
-            module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + k1 * x * x)"))
+            module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=flt16GeluK1Str, src1=self.vgprPrefix(vgprIn), comment="k1 * x"))
+            module.add(ti.VFmaF32(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), src2=1.0, comment="1 + (k1 * x * x)"))
+            module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + k1 * x * x)"))
             coef = floatUnion(u=ActivationMagicNumbers["FloatGeluK0"])
-            module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=coef.f, src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
+            module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=coef.f, src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
             module.add(self.getTanhModule(cDataType, Holder(idx=vgprTemp), Holder(idx=vgprTemp), "", ""))
-            module.add(VAddF32(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), comment="1 + tanh(...)" ))
-            module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
+            module.add(ti.VAddF32(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), comment="1 + tanh(...)" ))
+            module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
             if activationAlpha == None:
-              module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
+              module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
             else:
-                module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
-                module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...)) * scale"))
+                module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
+                module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...)) * scale"))
         else:
             raise RuntimeError("Unsupported data type %s."%cDataType.toDevice("HIP"))
         return module
@@ -605,32 +606,32 @@ class ActivationModule:
         module = Module("LeakyRelu")
         if cDataType.isHalf():
             vgprTemp = self.getVgpr(1)
-            module.add(VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="tmp = x * alpha"))
+            module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="tmp = x * alpha"))
             for i in range(0, 2):
                 select_bit = SelectBit.WORD_0 if i == 0 else SelectBit.WORD_1
-                module.add(VCmpGEF16(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=0.0, \
+                module.add(ti.VCmpGEF16(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=0.0, \
                                      sdwa=SDWAModifiers(src0_sel=select_bit, src1_sel=SelectBit.WORD_0), \
                                      comment="x > 0 ?"))
-                module.add(VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), \
+                module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), \
                                        sdwa=SDWAModifiers(dst_sel=select_bit, dst_unused=UnusedBit.UNUSED_PRESERVE, \
                                                           src0_sel=select_bit, src1_sel=select_bit), \
                                        comment="set x to tmp if < 0"))
         elif cDataType.isSingle():
             vgprTemp = self.getVgpr(1)
-            module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="tmp = x * alpha"))
-            module.add(VCmpGEF32(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=0.0, comment="x >= 0 ?"))
-            module.add(VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), comment="set x to tmp if < 0"))
+            module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="tmp = x * alpha"))
+            module.add(ti.VCmpGEF32(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=0.0, comment="x >= 0 ?"))
+            module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), comment="set x to tmp if < 0"))
         elif cDataType.isDouble():
             vgprTemp = self.getVgpr(2)
-            module.add(VMulF64(dst=vgpr(Holder(idx=vgprTemp), 2), src0=sgpr(activationAlpha, 2), src1=self.vgprPrefix(vgprIn, 2), comment="tmp = x * alpha"))
-            module.add(VCmpGEF64(dst=VCC(), src0=self.vgprPrefix(vgprIn, 2), src1=0.0, comment="x >= 0 ?"))
-            module.add(VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), comment="set x to tmp if < 0"))
-            module.add(VCndMaskB32(dst=self.vgprPrefix(vgprOut+1), src0=vgpr(Holder(idx=vgprTemp+1)), src1=self.vgprPrefix(vgprIn+1), comment="set x to tmp if < 0"))
+            module.add(ti.VMulF64(dst=vgpr(Holder(idx=vgprTemp), 2), src0=sgpr(activationAlpha, 2), src1=self.vgprPrefix(vgprIn, 2), comment="tmp = x * alpha"))
+            module.add(ti.VCmpGEF64(dst=VCC(), src0=self.vgprPrefix(vgprIn, 2), src1=0.0, comment="x >= 0 ?"))
+            module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), comment="set x to tmp if < 0"))
+            module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprOut+1), src0=vgpr(Holder(idx=vgprTemp+1)), src1=self.vgprPrefix(vgprIn+1), comment="set x to tmp if < 0"))
         elif cDataType.isInt32():
             vgprTemp = self.getVgpr(1)
-            module.add(VMulLOU32(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="tmp = x * alpha"))
-            module.add(VCmpGEI32(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=0, comment="x >= 0 ?"))
-            module.add(VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), comment="set x to tmp if < 0"))
+            module.add(ti.VMulLOU32(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="tmp = x * alpha"))
+            module.add(ti.VCmpGEI32(dst=VCC(), src0=self.vgprPrefix(vgprIn), src1=0, comment="x >= 0 ?"))
+            module.add(ti.VCndMaskB32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp)), src1=self.vgprPrefix(vgprIn), comment="set x to tmp if < 0"))
         else:
             raise RuntimeError("Unsupported data type %s."%cDataType.toDevice("HIP"))
         return module
@@ -638,119 +639,119 @@ class ActivationModule:
     def getReluModule(self, cDataType, vgprIn, vgprOut):
         module = Module("LeakyRelu")
         if cDataType.isHalf():
-            module.add(VMaxPKF16(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=0, comment="x = max(0, x)" ))
+            module.add(ti.VMaxPKF16(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=0, comment="x = max(0, x)" ))
         elif cDataType.isSingle():
-            module.add(VMaxF32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=0, comment="x = max(0, x)" ))
+            module.add(ti.VMaxF32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=0, comment="x = max(0, x)" ))
         elif cDataType.isDouble():
-            module.add(VMaxF64(dst=self.vgprPrefix(vgprOut, 2), src0=self.vgprPrefix(vgprIn, 2), src1=0, comment="x = max(0, x)" ))
+            module.add(ti.VMaxF64(dst=self.vgprPrefix(vgprOut, 2), src0=self.vgprPrefix(vgprIn, 2), src1=0, comment="x = max(0, x)" ))
         elif cDataType.isInt32():
             if self.saturateI8:
                 vgprTemp = self.getVgpr(1)
-                module.add(VMovB32(dst=vgpr(Holder(idx=vgprTemp)), src=hex(127), comment="value = 127"))
-                module.add(VMed3I32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=0, src2=vgpr(Holder(idx=vgprTemp)), comment="x = min(127, max(0, x))" ))
+                module.add(ti.VMovB32(dst=vgpr(Holder(idx=vgprTemp)), src=hex(127), comment="value = 127"))
+                module.add(ti.VMed3I32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=0, src2=vgpr(Holder(idx=vgprTemp)), comment="x = min(127, max(0, x))" ))
             else:
-                module.add(VMaxI32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=0, comment="x = max(0, x)" ))
+                module.add(ti.VMaxI32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=0, comment="x = max(0, x)" ))
         else:
             raise RuntimeError("Unsupported data type %s."%cDataType.toDevice("HIP"))
         return module
 
     def getSigmoidModule(self, cDataType, vgprIn, vgprOut):
-        ti = TensileInstructions()
+        tinstr = TInstr()
         self.needCombine = True
         module = Module("Sigmoid")
         if cDataType.isHalf():
             if self.usePK:
-                module.add(VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=-1.0, src1=self.vgprPrefix(vgprIn), comment=" x = -x"))
+                module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=-1.0, src1=self.vgprPrefix(vgprIn), comment=" x = -x"))
                 module.add(self.getExpModule(cDataType, vgprOut, vgprOut))
-                module.add(VAddPKF16(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), \
-                                     vop3=VOP3PModifiers(op_sel_hi=[0,1,1]), comment="1 + exp(-x)"))
+                module.add(ti.VAddPKF16(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), \
+                                     vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="1 + exp(-x)"))
                 for i in range(0, 2):
                     select_bit = SelectBit.WORD_0 if i == 0 else SelectBit.WORD_1
-                    module.add(VRcpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), \
+                    module.add(ti.VRcpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), \
                                        sdwa=SDWAModifiers(dst_sel=select_bit, dst_unused=UnusedBit.UNUSED_PRESERVE, src0_sel=select_bit), \
                                        comment="1 / (1 + exp(-x))"))
-                if ti.getArchCaps()["TransOpWait"]:
-                    module.add(SNop(waitState=0, comment="1 wait states"))
+                if tinstr.getArchCaps()["TransOpWait"]:
+                    module.add(ti.SNop(waitState=0, comment="1 wait states"))
             else:
-                module.add(VMulF16(dst=self.vgprPrefix(vgprOut), src0=-1.0, src1=self.vgprPrefix(vgprIn), comment=" x = -x"))
+                module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=-1.0, src1=self.vgprPrefix(vgprIn), comment=" x = -x"))
                 module.add(self.getExpModule(cDataType, vgprOut, vgprOut))
-                module.add(VAddF16(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), comment="1 + exp(-x)"))
-                module.add(VRcpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="1 / (1 + exp(-x))"))
-                if ti.getArchCaps()["TransOpWait"]:
-                    module.add(SNop(waitState=0, comment="1 wait states"))
+                module.add(ti.VAddF16(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), comment="1 + exp(-x)"))
+                module.add(ti.VRcpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="1 / (1 + exp(-x))"))
+                if tinstr.getArchCaps()["TransOpWait"]:
+                    module.add(ti.SNop(waitState=0, comment="1 wait states"))
         elif cDataType.isSingle():
-            module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=-1.0, src1=self.vgprPrefix(vgprIn), comment=" x = -x"))
+            module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=-1.0, src1=self.vgprPrefix(vgprIn), comment=" x = -x"))
             module.add(self.getExpModule(cDataType, vgprOut, vgprOut))
-            module.add(VAddF32(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), comment="1 + exp(-x)" ))
-            module.add(VRcpF32(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="1 / (1 + exp(-x))" ))
-            if ti.getArchCaps()["TransOpWait"]:
-                module.add(SNop(waitState=0, comment="1 wait states"))
+            module.add(ti.VAddF32(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), comment="1 + exp(-x)" ))
+            module.add(ti.VRcpF32(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="1 / (1 + exp(-x))" ))
+            if tinstr.getArchCaps()["TransOpWait"]:
+                module.add(ti.SNop(waitState=0, comment="1 wait states"))
         else:
             raise RuntimeError("Unsupported data type %s."%cDataType.toDevice("HIP"))
         return module
 
     def getTanhModule(self, cDataType, vgprIn, vgprOut, activationAlpha, activationBeta):
-        ti = TensileInstructions()
+        tinstr = TInstr()
         self.needCombine = True
         module = Module("Tanh")
         if cDataType.isHalf():
             # We don't need s_pack_ll_b32_b16 cause the input is already duplicated
             if self.usePK:
                 if activationAlpha:
-                    module.add(VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="x * alpha"))
-                    module.add(VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprOut), comment=" x = 2 * x"))
+                    module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="x * alpha"))
+                    module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprOut), comment=" x = 2 * x"))
                 else:
-                    module.add(VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprIn), comment=" x = 2 * x"))
+                    module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprIn), comment=" x = 2 * x"))
                 module.add(self.getExpModule(cDataType, vgprOut, vgprOut))
-                module.add(VAddPKF16(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), \
-                                     vop3=VOP3PModifiers(op_sel_hi=[0,1,1]), comment="e^2x + 1"))
+                module.add(ti.VAddPKF16(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), \
+                                     vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="e^2x + 1"))
                 for i in range(0, 2):
                     select_bit = SelectBit.WORD_0 if i == 0 else SelectBit.WORD_1
                     vgprCtrl = "dst_sel:WORD_%d dst_unused:UNUSED_PRESERVE src0_sel:WORD_%d"%(i, i)
-                    module.add(VRcpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), \
+                    module.add(ti.VRcpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), \
                                        sdwa=SDWAModifiers(dst_sel=select_bit, dst_unused=UnusedBit.UNUSED_PRESERVE, \
                                                           src0_sel=select_bit), \
                                        comment="1 / (1 + exp(-x))"))
-                    if ti.getArchCaps()["TransOpWait"]:
-                        module.add(SNop(waitState=0, comment="1 wait states")) #workaround for emulator
-                module.add(VFmaPKF16(dst=self.vgprPrefix(vgprOut), src0=-2.0, src1=self.vgprPrefix(vgprOut), src2=1.0, \
-                                     vop3=VOP3PModifiers(op_sel_hi=[0,1,0,1]), comment="tanh(x) = (1 / (e^2x + 1)) * (-2) + 1"))
+                    if tinstr.getArchCaps()["TransOpWait"]:
+                        module.add(ti.SNop(waitState=0, comment="1 wait states")) #workaround for emulator
+                module.add(ti.VFmaPKF16(dst=self.vgprPrefix(vgprOut), src0=-2.0, src1=self.vgprPrefix(vgprOut), src2=1.0, \
+                                     vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,0,1]), comment="tanh(x) = (1 / (e^2x + 1)) * (-2) + 1"))
                 if activationBeta:
-                    module.add(VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprOut), comment="beta * tanh(x)"))
+                    module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprOut), comment="beta * tanh(x)"))
             else:
                 if activationAlpha:
-                    module.add(VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="x * alpha"))
-                    module.add(VMulF16(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprOut), comment=" x = 2 * x"))
+                    module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="x * alpha"))
+                    module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprOut), comment=" x = 2 * x"))
                 else:
-                    module.add(VMulF16(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprIn), comment=" x = 2 * x"))
+                    module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprIn), comment=" x = 2 * x"))
                 module.add(self.getExpModule(cDataType, vgprOut, vgprOut))
-                module.add(VAddF16(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), comment="e^2x + 1"))
-                module.add(VRcpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="1 / (1 + exp(-x))"))
-                if ti.getArchCaps()["TransOpWait"]:
-                    module.add(SNop(waitState=0, comment="1 wait states")) #workaround for emulator
-                module.add(VFmaF16(dst=self.vgprPrefix(vgprOut), src0=-2.0, src1=self.vgprPrefix(vgprOut), src2=1.0, comment="tanh(x) = (1 / (e^2x + 1)) * (-2) + 1"))
+                module.add(ti.VAddF16(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), comment="e^2x + 1"))
+                module.add(ti.VRcpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="1 / (1 + exp(-x))"))
+                if tinstr.getArchCaps()["TransOpWait"]:
+                    module.add(ti.SNop(waitState=0, comment="1 wait states")) #workaround for emulator
+                module.add(ti.VFmaF16(dst=self.vgprPrefix(vgprOut), src0=-2.0, src1=self.vgprPrefix(vgprOut), src2=1.0, comment="tanh(x) = (1 / (e^2x + 1)) * (-2) + 1"))
                 if activationBeta:
-                    module.add(VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprOut), comment="beta * tanh(x)"))
+                    module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprOut), comment="beta * tanh(x)"))
         elif cDataType.isSingle():
             if activationAlpha:
-                module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="x * alpha"))
-                module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprOut), comment=" x = 2 * x"))
+                module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=self.vgprPrefix(vgprIn), comment="x * alpha"))
+                module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprOut), comment=" x = 2 * x"))
             else:
-                module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprIn), comment=" x = 2 * x"))
+                module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=2, src1=self.vgprPrefix(vgprIn), comment=" x = 2 * x"))
             module.add(self.getExpModule(cDataType, vgprOut, vgprOut))
-            module.add(VAddF32(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), comment="e^2x + 1"))
-            module.add(VRcpF32(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="1 / (e^2x + 1)"))
-            if ti.getArchCaps()["TransOpWait"]:
-                module.add(SNop(waitState=0, comment="1 wait states")) #workaround for emulator
-            module.add(VFmaF32(dst=self.vgprPrefix(vgprOut), src0=-2.0, src1=self.vgprPrefix(vgprOut), src2=1.0, comment="(-2) * (1 / (e^2x + 1)) + 1"))
+            module.add(ti.VAddF32(dst=self.vgprPrefix(vgprOut), src0=1.0, src1=self.vgprPrefix(vgprOut), comment="e^2x + 1"))
+            module.add(ti.VRcpF32(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="1 / (e^2x + 1)"))
+            if tinstr.getArchCaps()["TransOpWait"]:
+                module.add(ti.SNop(waitState=0, comment="1 wait states")) #workaround for emulator
+            module.add(ti.VFmaF32(dst=self.vgprPrefix(vgprOut), src0=-2.0, src1=self.vgprPrefix(vgprOut), src2=1.0, comment="(-2) * (1 / (e^2x + 1)) + 1"))
             if activationBeta:
-                module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprOut), comment="beta * tanh(x)"))
+                module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationBeta), src1=self.vgprPrefix(vgprOut), comment="beta * tanh(x)"))
         else:
             raise RuntimeError("Unsupported data type %s."%cDataType.toDevice("HIP"))
         return module
 
     def getDGeluModule(self, cDataType, vgprIn, vgprOut):
-        ti = TensileInstructions()
+        tinstr = TInstr()
         self.needCombine = True
         module = Module("Gradient Gelu")
         # x1 = (0.0535161 * pow(x, 3) + 0.398942 * x)
@@ -762,54 +763,54 @@ class ActivationModule:
             vgprTemp2 = self.getVgpr(1)
             vgprTemp3 = self.getVgpr(1)
             sgprTemp = self.getSgpr(1)
-            module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="tmp1 = pow(x * 2)"))
-            module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=vgpr(Holder(idx=vgprTemp1)), src1=self.vgprPrefix(vgprIn), comment="tmp1 = pow(x * 3)"))
+            module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="tmp1 = pow(x * 2)"))
+            module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=vgpr(Holder(idx=vgprTemp1)), src1=self.vgprPrefix(vgprIn), comment="tmp1 = pow(x * 3)"))
             coef = floatUnion(u=ActivationMagicNumbers["FloatDGeluK1"])
-            module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp2)), src0=hex(coef.u), src1=self.vgprPrefix(vgprIn), comment="tmp2 = 0.398942 * x"))
+            module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp2)), src0=hex(coef.u), src1=self.vgprPrefix(vgprIn), comment="tmp2 = 0.398942 * x"))
             coef = floatUnion(u=ActivationMagicNumbers["FloatDGeluK0"])
-            module.add(SMovB32(dst=sgpr(Holder(idx=sgprTemp)), src=hex(coef.u), comment="move magic number to sgpr"))
-            module.add(VFmaF32(dst=vgpr(Holder(idx=vgprTemp2)), src0=sgpr(Holder(idx=sgprTemp)), src1=vgpr(Holder(idx=vgprTemp1)), src2=vgpr(Holder(idx=vgprTemp2)), comment="tmp2 = 0.0535161 * x^3 + tmp2"))
+            module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprTemp)), src=hex(coef.u), comment="move magic number to sgpr"))
+            module.add(ti.VFmaF32(dst=vgpr(Holder(idx=vgprTemp2)), src0=sgpr(Holder(idx=sgprTemp)), src1=vgpr(Holder(idx=vgprTemp1)), src2=vgpr(Holder(idx=vgprTemp2)), comment="tmp2 = 0.0535161 * x^3 + tmp2"))
             coef = floatUnion(u=ActivationMagicNumbers["FloatDGeluK3"])
-            module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp3)), src0=hex(coef.u), src1=self.vgprPrefix(vgprIn), comment="tmp3 = 0.797885 * x"))
+            module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp3)), src0=hex(coef.u), src1=self.vgprPrefix(vgprIn), comment="tmp3 = 0.797885 * x"))
             coef = floatUnion(u=ActivationMagicNumbers["FloatDGeluK2"])
-            module.add(SMovB32(dst=sgpr(Holder(idx=sgprTemp)), src=hex(coef.u), comment="move magic number to sgpr"))
-            module.add(VFmaF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=sgpr(Holder(idx=sgprTemp)), src1=vgpr(Holder(idx=vgprTemp1)), src2=vgpr(Holder(idx=vgprTemp3)), comment="tmp1 = 0.035677 * x^3 + tmp3"))
+            module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprTemp)), src=hex(coef.u), comment="move magic number to sgpr"))
+            module.add(ti.VFmaF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=sgpr(Holder(idx=sgprTemp)), src1=vgpr(Holder(idx=vgprTemp1)), src2=vgpr(Holder(idx=vgprTemp3)), comment="tmp1 = 0.035677 * x^3 + tmp3"))
             module.add(self.getExpModule(cDataType, Holder(idx=vgprTemp1), Holder(idx=vgprTemp3)))
             if self.isAlt:
-                module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=-1.0, src1=vgpr(Holder(idx=vgprTemp1)), comment="tmp1 = -tmp1"))
+                module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=-1.0, src1=vgpr(Holder(idx=vgprTemp1)), comment="tmp1 = -tmp1"))
                 module.add(self.getExpModule(cDataType, Holder(idx=vgprTemp1), Holder(idx=vgprTemp1)))
-                module.add(VAddF32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp3)), src1=vgpr(Holder(idx=vgprTemp1)), comment="out = e^xx + e^-xx"))
-                module.add(VSubF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=vgpr(Holder(idx=vgprTemp3)), src1=vgpr(Holder(idx=vgprTemp1)), comment="tmp1 = e^xx - e^-xx"))
-                module.add(VRcpF32(dst=vgpr(Holder(idx=vgprTemp3)), src=self.vgprPrefix(vgprOut), comment="tmp3 = 1/out"))
-                if ti.getArchCaps()["TransOpWait"]:
-                    module.add(SNop(waitState=0, comment="1 wait states")) #workaround for emulator
-                module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp3)), src0=vgpr(Holder(idx=vgprTemp1)), src1=vgpr(Holder(idx=vgprTemp3)), comment="tmp3 = tmp1 * tmp3"))
+                module.add(ti.VAddF32(dst=self.vgprPrefix(vgprOut), src0=vgpr(Holder(idx=vgprTemp3)), src1=vgpr(Holder(idx=vgprTemp1)), comment="out = e^xx + e^-xx"))
+                module.add(ti.VSubF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=vgpr(Holder(idx=vgprTemp3)), src1=vgpr(Holder(idx=vgprTemp1)), comment="tmp1 = e^xx - e^-xx"))
+                module.add(ti.VRcpF32(dst=vgpr(Holder(idx=vgprTemp3)), src=self.vgprPrefix(vgprOut), comment="tmp3 = 1/out"))
+                if tinstr.getArchCaps()["TransOpWait"]:
+                    module.add(ti.SNop(waitState=0, comment="1 wait states")) #workaround for emulator
+                module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp3)), src0=vgpr(Holder(idx=vgprTemp1)), src1=vgpr(Holder(idx=vgprTemp3)), comment="tmp3 = tmp1 * tmp3"))
                 if self.enableGuard:
-                    module.add(SMovB32(dst=sgpr(Holder(idx=sgprTemp)), src=hex(0x200), comment="move magic number to sgpr"))
-                    module.add(VCmpXClassF32(dst=EXEC(), src0=self.vgprPrefix(vgprOut), src1=sgpr(Holder(idx=sgprTemp)), comment="True if tmp1 = inf"))
-                    module.add(VMovB32(dst=vgpr(Holder(idx=vgprTemp3)), src=hex(0x3f800000), comment="tmp3 = 1 if True"))
-                    module.add(VCmpXLtF32(dst=EXEC(), src0=vgpr(Holder(idx=vgprTemp2)), src1=0, comment="check if x < 0" ))
-                    module.add(VMovB32(dst=vgpr(Holder(idx=vgprTemp3)), src=hex(0xbf800000), comment="tmp3 = -1 if True"))
-                    module.add(SSetMask(dst=EXEC(), src=-1, comment="reset mask" ))
-                module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp3)), comment="tmp1 = 0.5 * tmp1"))
-                module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprOut), src1=self.vgprPrefix(vgprOut), comment="out = out * out"))
-                module.add(VRcpF32(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="out = 1/out"))
-                if ti.getArchCaps()["TransOpWait"]:
-                    module.add(SNop(waitState=0, comment="1 wait states")) #workaround for emulator
+                    module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprTemp)), src=hex(0x200), comment="move magic number to sgpr"))
+                    module.add(ti.VCmpXClassF32(dst=EXEC(), src0=self.vgprPrefix(vgprOut), src1=sgpr(Holder(idx=sgprTemp)), comment="True if tmp1 = inf"))
+                    module.add(ti.VMovB32(dst=vgpr(Holder(idx=vgprTemp3)), src=hex(0x3f800000), comment="tmp3 = 1 if True"))
+                    module.add(ti.VCmpXLtF32(dst=EXEC(), src0=vgpr(Holder(idx=vgprTemp2)), src1=0, comment="check if x < 0" ))
+                    module.add(ti.VMovB32(dst=vgpr(Holder(idx=vgprTemp3)), src=hex(0xbf800000), comment="tmp3 = -1 if True"))
+                    module.add(ti.SSetMask(dst=EXEC(), src=-1, comment="reset mask" ))
+                module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp3)), comment="tmp1 = 0.5 * tmp1"))
+                module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprOut), src1=self.vgprPrefix(vgprOut), comment="out = out * out"))
+                module.add(ti.VRcpF32(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), comment="out = 1/out"))
+                if tinstr.getArchCaps()["TransOpWait"]:
+                    module.add(ti.SNop(waitState=0, comment="1 wait states")) #workaround for emulator
             else:
                 module.add(self.getTanhModule(cDataType, Holder(idx=vgprTemp1), vgprOut, "", ""))
-                module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=-1.0, src1=vgpr(Holder(idx=vgprTemp1)), comment="tmp1 = -tmp1"))
+                module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=-1.0, src1=vgpr(Holder(idx=vgprTemp1)), comment="tmp1 = -tmp1"))
                 module.add(self.getExpModule(cDataType, Holder(idx=vgprTemp1), Holder(idx=vgprTemp1)))
-                module.add(VAddF32(dst=vgpr(Holder(idx=vgprTemp3)), src0=vgpr(Holder(idx=vgprTemp3)), src1=vgpr(Holder(idx=vgprTemp1)), comment="out = e^xx + e^-xx"))
-                module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=0.5, src1=self.vgprPrefix(vgprOut), comment="tmp1 = 0.5 * tmp1"))
-                module.add(VMulF32(dst=vgpr(Holder(idx=vgprTemp3)), src0=vgpr(Holder(idx=vgprTemp3)), src1=vgpr(Holder(idx=vgprTemp3)), comment="out = out * out"))
-                module.add(VRcpF32(dst=self.vgprPrefix(vgprOut), src=vgpr(Holder(idx=vgprTemp3)), comment="out = 1/out"))
-                if ti.getArchCaps()["TransOpWait"]:
-                    module.add(SNop(waitState=0, comment="1 wait states")) #workaround for emulator
+                module.add(ti.VAddF32(dst=vgpr(Holder(idx=vgprTemp3)), src0=vgpr(Holder(idx=vgprTemp3)), src1=vgpr(Holder(idx=vgprTemp1)), comment="out = e^xx + e^-xx"))
+                module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp1)), src0=0.5, src1=self.vgprPrefix(vgprOut), comment="tmp1 = 0.5 * tmp1"))
+                module.add(ti.VMulF32(dst=vgpr(Holder(idx=vgprTemp3)), src0=vgpr(Holder(idx=vgprTemp3)), src1=vgpr(Holder(idx=vgprTemp3)), comment="out = out * out"))
+                module.add(ti.VRcpF32(dst=self.vgprPrefix(vgprOut), src=vgpr(Holder(idx=vgprTemp3)), comment="out = 1/out"))
+                if tinstr.getArchCaps()["TransOpWait"]:
+                    module.add(ti.SNop(waitState=0, comment="1 wait states")) #workaround for emulator
             coef = floatUnion(f=4)
-            module.add(VMulF32(dst=self.vgprPrefix(vgprOut), src0=hex(coef.u), src1=self.vgprPrefix(vgprOut), comment="out = 4 * out"))
-            module.add(VFmaF32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprOut), src1=vgpr(Holder(idx=vgprTemp2)), src2=vgpr(Holder(idx=vgprTemp1)), comment="out = out * tmp2 + tmp1"))
-            module.add(VAddF32(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=self.vgprPrefix(vgprOut), comment="out = out + 0.5"))
+            module.add(ti.VMulF32(dst=self.vgprPrefix(vgprOut), src0=hex(coef.u), src1=self.vgprPrefix(vgprOut), comment="out = 4 * out"))
+            module.add(ti.VFmaF32(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprOut), src1=vgpr(Holder(idx=vgprTemp2)), src2=vgpr(Holder(idx=vgprTemp1)), comment="out = out * tmp2 + tmp1"))
+            module.add(ti.VAddF32(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=self.vgprPrefix(vgprOut), comment="out = out + 0.5"))
         else:
             raise RuntimeError("Unsupported data type %s."%cDataType.toDevice("HIP"))
         return module
@@ -821,11 +822,11 @@ class ActivationModule:
         module.addModuleAsFlatItems(self.getSigmoidModule(cDataType, vgprIn, Holder(idx=vgprTemp)))
         if cDataType.isHalf():
             if self.usePK:
-                mulFunction = VMulPKF16
+                mulFunction = ti.VMulPKF16
             else:
-                mulFunction = VMulF16
+                mulFunction = ti.VMulF16
         elif cDataType.isSingle():
-            mulFunction = VMulF32
+            mulFunction = ti.VMulF32
         else:
             raise RuntimeError("Unsupported data type %s."%cDataType.toDevice("HIP"))
         module.add(mulFunction(dst=self.vgprPrefix(vgprOut), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(Holder(idx=vgprTemp)), comment="x / (1 + exp(-x))"))
@@ -866,15 +867,15 @@ class ActivationModule:
                     if actInfo.isSame(usePK=self.usePK, saturateI8=self.saturateI8, isAlt=self.isAlt, \
                                       enableGuard=self.enableGuard, prefix=self.vgprPrefixFormat):
                         if self.vgprPrefixFormat:
-                            for vgpr in actInfo.vgprIdxList[0]:
-                                vgpr.regName.offsets[0] = vgprIn
-                            for vgpr in actInfo.vgprIdxList[1]:
-                                vgpr.regName.offsets[0] = vgprOut
+                            for _vgpr in actInfo.vgprIdxList[0]:
+                                _vgpr.regName.offsets[0] = vgprIn
+                            for _vgpr in actInfo.vgprIdxList[1]:
+                                _vgpr.regName.offsets[0] = vgprOut
                         else:
-                            for vgpr in actInfo.vgprIdxList[0]:
-                                vgpr.regIdx = vgprIn
-                            for vgpr in actInfo.vgprIdxList[1]:
-                                vgpr.regIdx = vgprOut
+                            for _vgpr in actInfo.vgprIdxList[0]:
+                                _vgpr.regIdx = vgprIn
+                            for _vgpr in actInfo.vgprIdxList[1]:
+                                _vgpr.regIdx = vgprOut
                         self.vgprCounter = actInfo.vgprCounter
                         self.sgprCounter = actInfo.sgprCounter
                         return fastdeepcopy(actInfo.module)
@@ -906,9 +907,9 @@ def CombineInstructionsBetweenModules(module, moduleAndIndex, fuseDebug):
         if isinstance(item, Module):
             CombineInstructionsBetweenModules(item, moduleAndIndex, fuseDebug)
             index = module.items().index(item)
-        elif isinstance(item, SNop):
+        elif isinstance(item, ti.SNop):
             pass
-        elif isinstance(item, Instruction):
+        elif isinstance(item, ti.Instruction):
             newItem = item
             if moduleAndIndex:
                 newItem = FuseInstruction(item, moduleAndIndex, fuseDebug)
@@ -928,15 +929,15 @@ def RemoveEmptyBlocks(module):
     return module
 
 def FuseInstruction(currentInst, moduleAndIndex, fuseDebug):
-    assert isinstance(currentInst, Instruction)
+    assert isinstance(currentInst, ti.Instruction)
     newInst = None
     # Fuses if v_add_f16 to v_fma_f16 if v_add_f16 is a self adding instruction.
     # Currently, we only fuse when the vgpr is add by 1 in both instructions.
     # ex. v_add_f16 v0, 1.0, v0
     #     +  v_fma_f16 v0, -2.0, v0, 1.0
     #     => v_fma_f16 v0, -2.0, v0, 2.0
-    if type(currentInst) in {VAddF16, VAddPKF16, VAddF32}:
-        isPK = type(currentInst) is VAddPKF16
+    if type(currentInst) in {ti.VAddF16, ti.VAddPKF16, ti.VAddF32}:
+        isPK = type(currentInst) is ti.VAddPKF16
         outVgpr = currentInst.dst
         addConst = ""
         isSelfAddConst = False
@@ -949,11 +950,11 @@ def FuseInstruction(currentInst, moduleAndIndex, fuseDebug):
 
         if isSelfAddConst and addConst:
             oldInst = moduleAndIndex.get(outVgpr)
-            if isinstance(oldInst, Instruction):
+            if isinstance(oldInst, ti.Instruction):
                 if currentInst.instType == InstType.INST_F16:
-                    func = VFmaPKF16 if isPK else VFmaF16
+                    func = ti.VFmaPKF16 if isPK else ti.VFmaF16
                 elif currentInst.instType == InstType.INST_F32:
-                    func = VFmaF32
+                    func = ti.VFmaF32
                 else:
                     assert("You should not reach here.")
                 if type(oldInst) is func and oldInst.srcs[2] == 1.0:
@@ -967,8 +968,8 @@ def FuseInstruction(currentInst, moduleAndIndex, fuseDebug):
                         removeOldInst(oldInst, currentInst, newInst, fuseDebug)
     # Fuses if v_mul_f16 to v_mul_f16 if the later one is a self multiplying instruction.
     # Only fuses when both instructions multiply constant
-    elif type(currentInst) in {VMulF16, VMulPKF16, VMulF32, VMulF64}:
-        isPK = type(currentInst) is VMulPKF16
+    elif type(currentInst) in {ti.VMulF16, ti.VMulPKF16, ti.VMulF32, ti.VMulF64}:
+        isPK = type(currentInst) is ti.VMulPKF16
         outVgpr = currentInst.dst
         mulConst = ""
         newFuseInst = ""
@@ -979,7 +980,7 @@ def FuseInstruction(currentInst, moduleAndIndex, fuseDebug):
             # The constant may be an sgpr
             if type(param) is RegisterContainer and param.regType == 's':
                 oldInst = moduleAndIndex.get(param)
-                if type(oldInst) is SMovB32:
+                if type(oldInst) is ti.SMovB32:
                     oldparam = oldInst.srcs[0]
                     if oldInst.dst == param and isinstance(oldparam, (float, int)):
                         # Cannot fuse if another instruction is using the same sgpr before a new assignment occurs
@@ -991,13 +992,13 @@ def FuseInstruction(currentInst, moduleAndIndex, fuseDebug):
 
         if isSelfMulConst and mulConst:
             oldInst = moduleAndIndex.get(outVgpr)
-            if isinstance(oldInst, Instruction):
+            if isinstance(oldInst, ti.Instruction):
                 if currentInst.instType == InstType.INST_F16:
-                    func = VMulPKF16 if isPK else VMulF16
+                    func = ti.VMulPKF16 if isPK else ti.VMulF16
                 elif currentInst.instType == InstType.INST_F32:
-                    func = VMulF32
+                    func = ti.VMulF32
                 elif currentInst.instType == InstType.INST_F64:
-                    func = VMulF64
+                    func = ti.VMulF64
                 else:
                     assert("You should not reach here.")
 
@@ -1033,7 +1034,7 @@ def FindUseIter(startItem, targetInst, varTarget):
     idx = -1
     isEnd = False
     isUse = False
-    if isinstance(startItem, Instruction):
+    if isinstance(startItem, ti.Instruction):
         module = startItem.parent
         idx = module.items().index(startItem)
     assert(isinstance(module, Module))
@@ -1041,9 +1042,9 @@ def FindUseIter(startItem, targetInst, varTarget):
         for item in module.items()[idx + 1:]:
             if item is targetInst:
                 pass
-            elif isinstance(item, SNop):
+            elif isinstance(item, ti.SNop):
                 pass
-            elif isinstance(item, Instruction):
+            elif isinstance(item, ti.Instruction):
                 if item.srcs:
                     for param in item.srcs:
                         if param == varTarget:
@@ -1070,7 +1071,7 @@ def FindAssignAndUseIter(startItem, endInst, assignVar, useVar):
     idx = -1
     isEnd = False
     isUse = False
-    if issubclass(type(startItem), Instruction):
+    if issubclass(type(startItem), ti.Instruction):
         module = startItem.parent
         idx = module.items().index(startItem)
     assert issubclass(type(module), Module)
@@ -1081,9 +1082,9 @@ def FindAssignAndUseIter(startItem, endInst, assignVar, useVar):
             itemType = type(item)
             if item is endInst:
                 isEnd = True
-            elif itemType is SNop:
+            elif itemType is ti.SNop:
                 pass
-            elif issubclass(itemType, Instruction):
+            elif issubclass(itemType, ti.Instruction):
                 if item.dst == assignVar:
                     isEnd = True
                     isUse = True
@@ -1180,9 +1181,9 @@ def HolderToGpr(module, idx, pf):
         if isinstance(item, Module):
             newItem = HolderToGpr(item, idx, pf)
             module.items()[itemIdx] = newItem
-        elif isinstance(item, SNop):
+        elif isinstance(item, ti.SNop):
             pass
-        elif isinstance(item, Instruction):
+        elif isinstance(item, ti.Instruction):
             if isinstance(item.dst, HolderContainer) and item.dst.regType == pf:
                 item.dst.setRegNum(idx)
                 item.dst = item.dst.getCopiedRC()
@@ -1205,9 +1206,9 @@ class ActivationInline:
 
   def replaceGpr(self, module):
     for item in module.items():
-        if isinstance(item, SNop):
+        if isinstance(item, ti.SNop):
             pass
-        elif isinstance(item, Instruction):
+        elif isinstance(item, ti.Instruction):
             if isinstance(item.dst, RegisterContainer):
                 if not item.dst.regName:
                     item.dst.setInlineAsm(True)
@@ -1277,7 +1278,7 @@ class ActivationInline:
       kStr += (asm + " // geluscaling\n")
       module = activation.getGeluModule(self.dataType, 0, 0, 1)
       kStr += self.getActivationAsmStr(activation, module, (len(asm) * " "))
-      kStr += addSpace(asm, ": \"+v\"(value) : \"s\"(alpha)\n")        
+      kStr += addSpace(asm, ": \"+v\"(value) : \"s\"(alpha)\n")
       kStr += self.getRequiredRegStr(asm, activation.vgprCounter, activation.sgprCounter)
     elif (activationType == 'leakyrelu'):
       if (self.dataType.isSingle() or self.dataType.isHalf() or self.dataType.isDouble()):
@@ -1350,7 +1351,7 @@ def createVgprIdxList(module, vgprList: list, regName):
             tmplist = createVgprIdxList(item, vgprList, regName)
             vlist[0].extend(tmplist[0])
             vlist[1].extend(tmplist[1])
-        elif isinstance(item, Instruction):
+        elif isinstance(item, ti.Instruction):
             for param in item.getParams():
                 if isinstance(param, RegisterContainer):
                     for index, vgprIdx in enumerate(vgprList):

@@ -9,7 +9,7 @@ from typing import List, Union
 from .. import Utils
 from ..Common import ensurePath, globalParameters, print2, printWarning
 from ..KernelWriterAssembly import KernelWriterAssembly
-from ..TensileInstructions import getGfxName
+from ..TensileInstructions.Utils import getGfxName
 from .SharedCommands import compressCodeObject
 
 

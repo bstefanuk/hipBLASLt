@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2023-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2023-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,9 +22,8 @@
 
 from argparse import ArgumentParser
 from dataclasses import dataclass
-from functools import wraps
-from typing import List, Tuple, Optional, Union
-from math import log2, log
+from typing import List, Tuple, Optional
+from math import log2
 import os
 import yaml
 import json
@@ -43,29 +42,29 @@ def kernel_header(name: str, gfx_arch: str, vgpr: int, sgpr: int, lds: int):
 
     header = ""
     header += f'.amdgcn_target "amdgcn-amd-amdhsa--{gfx_arch}"\n'
-    header += f'.text\n'
+    header += '.text\n'
     header += f'.protected {name}\n'
     header += f'.globl {name}\n'
-    header += f'.p2align 8\n'
+    header += '.p2align 8\n'
     header += f'.type {name},@function\n'
-    header += f'.section .rodata,#alloc\n'
-    header += f'.p2align 6\n'
+    header += '.section .rodata,#alloc\n'
+    header += '.p2align 6\n'
     header += f'.amdhsa_kernel {name}\n'
-    header += f'  .amdhsa_user_sgpr_kernarg_segment_ptr 1\n'
+    header += '  .amdhsa_user_sgpr_kernarg_segment_ptr 1\n'
     if (gfx_arch not in ("gfx900", "gfx908", "gfx1030", "gfx1100", "gfx1101", "gfx1102", "gfx1200", "gfx1201")):
         header += f'  .amdhsa_accum_offset {vgpr} // accvgpr offset\n'
     header += f'  .amdhsa_next_free_vgpr {vgpr} // vgprs\n'
     header += f'  .amdhsa_next_free_sgpr {sgpr} // sgprs\n'
     header += f'  .amdhsa_group_segment_fixed_size {lds} // lds bytes\n'
-    header += f'  .amdhsa_private_segment_fixed_size 0\n'
-    header += f'  .amdhsa_system_sgpr_workgroup_id_x 1\n'
-    header += f'  .amdhsa_system_sgpr_workgroup_id_y 1\n'
-    header += f'  .amdhsa_system_sgpr_workgroup_id_z 1\n'
-    header += f'  .amdhsa_system_vgpr_workitem_id 0\n'
-    header += f'  .amdhsa_float_denorm_mode_32 3\n'
-    header += f'  .amdhsa_float_denorm_mode_16_64 3\n'
-    header += f'.end_amdhsa_kernel\n'
-    header += f'.text\n'
+    header += '  .amdhsa_private_segment_fixed_size 0\n'
+    header += '  .amdhsa_system_sgpr_workgroup_id_x 1\n'
+    header += '  .amdhsa_system_sgpr_workgroup_id_y 1\n'
+    header += '  .amdhsa_system_sgpr_workgroup_id_z 1\n'
+    header += '  .amdhsa_system_vgpr_workitem_id 0\n'
+    header += '  .amdhsa_float_denorm_mode_32 3\n'
+    header += '  .amdhsa_float_denorm_mode_16_64 3\n'
+    header += '.end_amdhsa_kernel\n'
+    header += '.text\n'
     return header
 
 @contextmanager
@@ -584,7 +583,7 @@ class AMaxKernelGenerator:
 
 
     def sum_in_some_thread(self)  -> ti.Module:
-        label_sum_end = ti.Label("sum", f'loop sum end')
+        label_sum_end = ti.Label("sum", 'loop sum end')
         mod = ti.Module("sum_in_some_thread")
         mod.addComment0("sum_in_some_thread")
         mod.add(ti.SAndB32(ti.sgpr("MainLoop"), ti.sgpr("SizeLength"), self.num_workitems-1))
@@ -645,11 +644,11 @@ class AMaxKernelGenerator:
 
 
     def inter_wave_reduction(self) -> ti.Module:
-        label_inter = ti.Label("inter", f'inter')
-        label_upper = ti.Label("upper", f'upper')
-        label_lower = ti.Label("lower", f'lower')
-        label_empty = ti.Label("empty", f'empty')
-        label_end   = ti.Label("end", f'end')
+        label_inter = ti.Label("inter", 'inter')
+        label_upper = ti.Label("upper", 'upper')
+        label_lower = ti.Label("lower", 'lower')
+        label_empty = ti.Label("empty", 'empty')
+        label_end   = ti.Label("end", 'end')
         mod = ti.Module("inter_wave_reduction")
         mod.addComment0("inter_wave_reduction")
         mod.add(ti.VLShiftRightB32(ti.vgpr("Widx"), 6, ti.vgpr("Serial")))
@@ -694,8 +693,8 @@ class AMaxKernelGenerator:
 
 
     def broadcast(self) -> ti.Module:
-        label_lower = ti.Label("broadcast_lower", f'broadcast_lower')
-        label_end = ti.Label("broadcast_end", f'broadcast_end')
+        label_lower = ti.Label("broadcast_lower", 'broadcast_lower')
+        label_end = ti.Label("broadcast_end", 'broadcast_end')
 
         mod = ti.Module("broadcast")
         mod.addComment0("broadcast")

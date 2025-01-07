@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -24,9 +24,9 @@
 
 from . import ClientExecutable
 from . import LibraryIO
-from .TensileInstructions import getGfxName, DataType, getCOVFromParam
+from .TensileInstructions.Utils import getGfxName
 from .Common import globalParameters, pushWorkingPath, popWorkingPath, print1, printExit, CHeader, printWarning, listToInitializer, ClientExecutionLock
-from .SolutionStructs import Problem, ProblemType, ProblemSizesMock, ProblemSizesMockDummy, ActivationArgs, BiasTypeArgs, FactorDimArgs
+from .SolutionStructs import ProblemType, ProblemSizesMock, ProblemSizesMockDummy, ActivationArgs, BiasTypeArgs, FactorDimArgs
 from .TensileCreateLibrary import copyStaticFiles
 
 import os
@@ -101,7 +101,7 @@ def main(config, cxxCompiler: str, cCompiler: str):
   subprocess.run(shlex.split(createLibraryScript), cwd=stepBaseDir)
   coList = glob(os.path.join(stepBaseDir,"library/*.co"))
   yamlList = glob(os.path.join(stepBaseDir,"library/*.yaml"))
-    
+
   clientParametersPaths = []
   for logicFileName in logicFiles:
     (scheduleName, _, problemType, _, exactLogic, newLibrary, _) \

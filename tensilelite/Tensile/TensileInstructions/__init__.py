@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,21 +22,35 @@
 #
 ################################################################################
 
-# Init module
 import sys
+# import importlib
+
 if not (sys.version_info[0] >= 3 and sys.version_info[1] >= 6):
     raise Exception("Must be using Python 3.6 or above")
 
-from .Base import *
-from .Code import *
-from .Containers import *
-from .DataType import *
-from .Enums import *
-from .ExtInstructions import *
-from .Formatting import *
-from .Instructions import *
-from .Macros import *
-from .Math import *
-from .Pass import *
-from .RegisterPool import *
-from .Utils import *
+# # List of submodules to import and re-export
+# submodules = [
+#     'Base',
+#     'Code',
+#     'Containers',
+#     'DataType',
+#     'Enums',
+#     'ExtInstructions',
+#     'Formatting',
+#     'Instructions',
+#     'Macros',
+#     'Math',
+#     'Pass',
+#     'RegisterPool',
+#     'Utils'
+# ]
+
+# # Import each submodule and update the current module's namespace
+# for submodule in submodules:
+#     module = importlib.import_module(f'.{submodule}', package=__name__)
+#     for attr in dir(module):
+#         if not attr.startswith('_'):
+#             globals()[attr] = getattr(module, attr)
+
+# # Clean up the namespace
+# del sys, importlib, submodules, submodule, module, attr

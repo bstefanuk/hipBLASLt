@@ -33,19 +33,17 @@ import collections
 import glob
 import itertools
 import os
-import re
 import shutil
 import sys
 from pathlib import Path
 from timeit import default_timer as timer
-from typing import List, Sequence, Union
+from typing import List, Sequence
 
-from . import ClientExecutable, Common, EmbeddedData, LibraryIO, Utils
+from . import Common, LibraryIO, Utils
 from .BuildCommands import AssemblyCommands, SourceCommands
 from .Common import (
     HR,
     CHeader,
-    CMakeHeader,
     architectureMap,
     assignGlobalParameters,
     ensurePath,
@@ -53,14 +51,13 @@ from .Common import (
     print1,
     print2,
     printExit,
-    printWarning,
-    splitArchs,
 )
 from .CustomYamlLoader import load_logic_gfx_arch
 from .KernelWriterAssembly import KernelWriterAssembly
 from .SolutionLibrary import MasterSolutionLibrary
 from .SolutionStructs import Solution
-from .TensileInstructions import TensileInstructions, getGfxName
+from .TensileInstructions.Utils import getGfxName
+from .TensileInstructions.Base import TensileInstructions
 from .Utilities.Profile import profile
 from .Utilities.Toolchain import ToolchainDefaults, getVersion, validateToolchain
 
@@ -686,10 +683,6 @@ def TensileCreateLibrary():
     fullMasterLibrary.applyNaming = timing(fullMasterLibrary.applyNaming)
     fullMasterLibrary.applyNaming(kernelMinNaming)
     LibraryIO.write(masterFile, Utils.state(fullMasterLibrary), args.LibraryFormat)
-
-  theMasterLibrary = fullMasterLibrary
-  if globalParameters["SeparateArchitectures"] and len(masterLibraries) > 0:
-    theMasterLibrary = list(masterLibraries.values())[0]
 
   print1("# Tensile Library Writer DONE")
   print1(HR)

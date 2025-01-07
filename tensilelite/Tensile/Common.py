@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -24,7 +24,8 @@
 
 from . import __version__
 from . import Parallel
-from .TensileInstructions import getGfxName, TensileInstructions
+from .TensileInstructions.Base import TensileInstructions
+from .TensileInstructions.Utils import getGfxName
 from .Utilities.Toolchain import supportedCxxCompiler as supportedCompiler
 from collections import OrderedDict
 from copy import deepcopy
@@ -1679,7 +1680,7 @@ def assignGlobalParameters(config, cxxCompiler=None):
   # ROCm Agent Enumerator Path
   if os.name == "nt":
     globalParameters["AMDGPUArchPath"] = locateExe(globalParameters["ROCmBinPath"], "hipinfo.exe")
-    globalParameters["ROCmAgentEnumeratorPath"] = locateExe(globalParameters["ROCmBinPath"], "hipinfo.exe")    
+    globalParameters["ROCmAgentEnumeratorPath"] = locateExe(globalParameters["ROCmBinPath"], "hipinfo.exe")
   else:
     globalParameters["AMDGPUArchPath"] = locateExe(globalParameters["ROCmPath"], "llvm/bin/amdgpu-arch")
     globalParameters["ROCmAgentEnumeratorPath"] = locateExe(globalParameters["ROCmBinPath"], "rocm_agent_enumerator")

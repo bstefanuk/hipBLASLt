@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,10 +22,11 @@
 #
 ################################################################################
 
-from ..TensileInstructions import Module, SMulI32, VAddLShiftLeftU32, VAddU32, VMulLOU32, \
-                            VMovB32, VAddCOU32, staticMultiply, vectorStaticDivide, \
-                            vectorStaticRemainder, RegisterPoolResource, vgpr, sgpr, log2, \
-                            vectorStaticDivideAndRemainder
+from ..TensileInstructions import Instructions as ti
+from ..TensileInstructions import Math as mathti
+from ..TensileInstructions.Code import Module
+from ..TensileInstructions.RegisterPool import RegisterPoolResource
+from ..TensileInstructions.Utils import vgpr, sgpr, log2
 from ..Component import ComputeStoreVgprs
 from ..Utils import DataDirection
 
@@ -71,10 +72,10 @@ class ComputeStoreVgprsVALU(ComputeStoreVgprs):
             tmpS0 = tmpSgprInfo.idx
             tmpS1 = tmpS0+1
             wgMT1 = tmpS0+2
-            module.add(vectorStaticDivideAndRemainder(tid1, tid0, "Serial", divisor, tmpS0))
-            module.add(staticMultiply(vgpr(tid0), vgpr(tid0), tid0Scale, sgpr(tmpS1)))
+            module.add(mathti.vectorStaticDivideAndRemainder(tid1, tid0, "Serial", divisor, tmpS0))
+            module.add(mathti.staticMultiply(vgpr(tid0), vgpr(tid0), tid0Scale, sgpr(tmpS1)))
             if tid1Scale != 1:
-                module.add(staticMultiply(vgpr(tid1), vgpr(tid1), tid1Scale, sgpr(tmpS1)))
+                module.add(mathti.staticMultiply(vgpr(tid1), vgpr(tid1), tid1Scale, sgpr(tmpS1)))
 
             if kernel["BufferStore"]:
                 # compute rowStart- this is just tid1 scaled by appropriate stride.
@@ -87,9 +88,9 @@ class ComputeStoreVgprsVALU(ComputeStoreVgprs):
                 # Eventually need to modify if supporting packed coord1, to start just assert if that case is detected
                 #--
                 strideC1 = "StrideC%s" % (writer.states.indexChars[packedC1[0]])
-                module.add(VMulLOU32(dst=vgpr(writer.vgprs.cinRowPtr), src0=vgpr(tid1), src1=sgpr(strideC1), comment="rowStart vgpr"))
+                module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.cinRowPtr), src0=vgpr(tid1), src1=sgpr(strideC1), comment="rowStart vgpr"))
                 strideD1 = "StrideD%s" % (writer.states.indexChars[packedC1[0]])
-                module.add(VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrD), src0=vgpr(tid1), src1=sgpr(strideD1), comment="rowStart vgpr"))
+                module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrD), src0=vgpr(tid1), src1=sgpr(strideD1), comment="rowStart vgpr"))
                 module.addSpaceLine()
 
             # Compute coord0 and coord1
@@ -97,12 +98,12 @@ class ComputeStoreVgprsVALU(ComputeStoreVgprs):
             # These are 'flattened' meaning they span packed tensor dims.
             # They need to be preserved so can use in comparisons against
             # product-of-packed sizes to determine OOB cases. (for Edge tiles only)
-            module.add(SMulI32(dst=sgpr(tmpS0), src0=hex(kernel["MacroTile0"]), src1=sgpr(wg0), comment="%s = wg0*MT0"%sgpr(tmpS0)))
+            module.add(ti.SMulI32(dst=sgpr(tmpS0), src0=hex(kernel["MacroTile0"]), src1=sgpr(wg0), comment="%s = wg0*MT0"%sgpr(tmpS0)))
 
             # coord = tid*VW + workgroup offset
-            module.add(VAddU32(dst=vgpr(tid0), src0=sgpr(tmpS0), src1=vgpr(tid0), comment="coord0 = tid0*VW + wg0*MT0"))
-            module.add(SMulI32(dst=sgpr(wgMT1), src0=hex(kernel["MacroTile1"]), src1=sgpr(wg1), comment="<- wg1*MT1"))
-            module.add(VAddU32(dst=vgpr(tid1), src0=sgpr(wgMT1), src1=vgpr(tid1), comment="coord1 = tid1*VW + wg1*MT1"))
+            module.add(ti.VAddU32(dst=vgpr(tid0), src0=sgpr(tmpS0), src1=vgpr(tid0), comment="coord0 = tid0*VW + wg0*MT0"))
+            module.add(ti.SMulI32(dst=sgpr(wgMT1), src0=hex(kernel["MacroTile1"]), src1=sgpr(wg1), comment="<- wg1*MT1"))
+            module.add(ti.VAddU32(dst=vgpr(tid1), src0=sgpr(wgMT1), src1=vgpr(tid1), comment="coord1 = tid1*VW + wg1*MT1"))
 
             if len(packedC1) > 1:
                 module.add(writer.extractPackedCoord1ToRowStart(kernel, packedC1, tid1, 'D'))
@@ -170,49 +171,49 @@ class ComputeStoreVgprsMFMA(ComputeStoreVgprs):
             module = Module("ComputeStoreVgprsMFMA")
 
             # coord 1 : wave part
-            module.add(vectorStaticDivide(wave_id, "Serial", writer.states.kernel["WavefrontSize"], tmpVgpr1Res))
-            module.add(vectorStaticDivide(tmpVgpr0, wave_id, kernel["MIWaveGroup"][0], tmpVgpr1Res))
+            module.add(mathti.vectorStaticDivide(wave_id, "Serial", writer.states.kernel["WavefrontSize"], tmpVgpr1Res))
+            module.add(mathti.vectorStaticDivide(tmpVgpr0, wave_id, kernel["MIWaveGroup"][0], tmpVgpr1Res))
             if kernel["LocalSplitU"] > 1:
-                module.add(vectorStaticRemainder(dummy, tmpVgpr0, tmpVgpr0, kernel["MIWaveGroup"][1], tmpVgpr1Res, tmpSgprInfo))
-            module.add(VMulLOU32(dst=vgpr(tid1), src0=hex(MIBShape1), src1=vgpr(tmpVgpr0), comment="wave coordination offset 1"))
+                module.add(mathti.vectorStaticRemainder(dummy, tmpVgpr0, tmpVgpr0, kernel["MIWaveGroup"][1], tmpVgpr1Res, tmpSgprInfo))
+            module.add(ti.VMulLOU32(dst=vgpr(tid1), src0=hex(MIBShape1), src1=vgpr(tmpVgpr0), comment="wave coordination offset 1"))
 
             # coord 1 : thread part
-            module.add(vectorStaticRemainder(dummy, tmpVgpr0, "Serial", matrixInstN, tmpVgpr1Res, tmpSgprInfo))
-            module.add(VAddLShiftLeftU32(dst=vgpr(lsuTid1), src0=vgpr(tmpVgpr0), src1=vgpr(tid1), shiftHex=log2(kernel["VectorWidthB"]), comment="coordination 1 = vwB *(wave_id1 + tid1)"))
+            module.add(mathti.vectorStaticRemainder(dummy, tmpVgpr0, "Serial", matrixInstN, tmpVgpr1Res, tmpSgprInfo))
+            module.add(ti.VAddLShiftLeftU32(dst=vgpr(lsuTid1), src0=vgpr(tmpVgpr0), src1=vgpr(tid1), shiftHex=log2(kernel["VectorWidthB"]), comment="coordination 1 = vwB *(wave_id1 + tid1)"))
 
             # coord 1 : offset part
             packedC1 = kernel["PackedC1IndicesX"]
             strideC1 = "StrideC%s" % (writer.states.indexChars[packedC1[0]])
             strideD1 = "StrideD%s" % (writer.states.indexChars[packedC1[0]])
-            module.add(VMulLOU32(dst=vgpr(writer.vgprs.cinRowPtr), src0=vgpr(lsuTid1), src1=sgpr(strideC1), comment=" offset 1"))
-            module.add(VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrD), src0=vgpr(lsuTid1), src1=sgpr(strideD1), comment=" offset 1"))
+            module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.cinRowPtr), src0=vgpr(lsuTid1), src1=sgpr(strideC1), comment=" offset 1"))
+            module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrD), src0=vgpr(lsuTid1), src1=sgpr(strideD1), comment=" offset 1"))
             if kernel["ProblemType"]["UseE"] and (kernel["GlobalSplitU"] == 1):
-                module.add(VMovB32(dst=vgpr(writer.vgprs.coutRowPtrE), src=vgpr(lsuTid1), comment=" save offset 1 for E"))
+                module.add(ti.VMovB32(dst=vgpr(writer.vgprs.coutRowPtrE), src=vgpr(lsuTid1), comment=" save offset 1 for E"))
             if writer.vgprs.coutRowPtrBias != -1:
                 index = packedC1[0] - 1
                 strideW1 = "Size%s" % "I" if index == 0 else ("J" if index == 1 else (writer.states.indexChars[index]))
-                module.add(VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrBias), src0=vgpr(lsuTid1), src1=sgpr(strideW1), comment=" offset 1"))
+                module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrBias), src0=vgpr(lsuTid1), src1=sgpr(strideW1), comment=" offset 1"))
 
             # coord 0 : wave part
-            module.add(vectorStaticRemainder(dummy, tmpVgpr0, wave_id, kernel["MIWaveGroup"][0], tmpVgpr1Res, tmpSgprInfo))
-            module.add(VMulLOU32(dst=vgpr(tmpVgpr0), src0=hex(MIBShape0), src1=vgpr(tmpVgpr0), comment="wave coordination offset 0"))
+            module.add(mathti.vectorStaticRemainder(dummy, tmpVgpr0, wave_id, kernel["MIWaveGroup"][0], tmpVgpr1Res, tmpSgprInfo))
+            module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr0), src0=hex(MIBShape0), src1=vgpr(tmpVgpr0), comment="wave coordination offset 0"))
 
             # coord 0 : thread part
-            module.add(vectorStaticRemainder(dummy, tid0, "Serial", writer.states.kernel["WavefrontSize"], tmpVgpr1Res, tmpSgprInfo))
-            module.add(vectorStaticDivide(tid0, tid0, matrixInstN, tmpVgpr1Res))
-            module.add(staticMultiply(vgpr(tid0), vgpr(tid0), kernel["MIOutputVectorWidth"], tmpSgprInfo, "thread0 * continuous_output"))
-            module.add(VAddLShiftLeftU32(dst=vgpr(lsuTid0), src0=vgpr(tmpVgpr0), src1=vgpr(tid0), shiftHex=log2(kernel["VectorWidthA"]), comment="coordination 0 = vwA *(wave_id0 + tid0)"))
+            module.add(mathti.vectorStaticRemainder(dummy, tid0, "Serial", writer.states.kernel["WavefrontSize"], tmpVgpr1Res, tmpSgprInfo))
+            module.add(mathti.vectorStaticDivide(tid0, tid0, matrixInstN, tmpVgpr1Res))
+            module.add(mathti.staticMultiply(vgpr(tid0), vgpr(tid0), kernel["MIOutputVectorWidth"], tmpSgprInfo, "thread0 * continuous_output"))
+            module.add(ti.VAddLShiftLeftU32(dst=vgpr(lsuTid0), src0=vgpr(tmpVgpr0), src1=vgpr(tid0), shiftHex=log2(kernel["VectorWidthA"]), comment="coordination 0 = vwA *(wave_id0 + tid0)"))
 
             wg0="WorkGroup0"
             wg1="WorkGroup1"
 
             # macro tile 0 part
-            module.add(SMulI32(dst=sgpr(tmpSgpr), src0=kernel["MacroTile0"], src1=sgpr(wg0), comment="wgp0 * MT0"))
-            module.add(VAddU32(dst=vgpr(tid0), src0=sgpr(tmpSgpr), src1=vgpr(lsuTid0), comment="coord 0 = (tid0/MI_m)*4 + waveG0*MIB_m + MT0*SG0"))
+            module.add(ti.SMulI32(dst=sgpr(tmpSgpr), src0=kernel["MacroTile0"], src1=sgpr(wg0), comment="wgp0 * MT0"))
+            module.add(ti.VAddU32(dst=vgpr(tid0), src0=sgpr(tmpSgpr), src1=vgpr(lsuTid0), comment="coord 0 = (tid0/MI_m)*4 + waveG0*MIB_m + MT0*SG0"))
 
             # macro tile 1 part
-            module.add(SMulI32(dst=sgpr(tmpSgpr), src0=kernel["MacroTile1"], src1=sgpr(wg1), comment="wgp1 * MT1"))
-            module.add(VAddU32(dst=vgpr(tid1), src0=sgpr(tmpSgpr), src1=vgpr(lsuTid1), comment="coord 1 = (tid0%MI_m) + waveG1*MIB_n + MT1*SG1"))
+            module.add(ti.SMulI32(dst=sgpr(tmpSgpr), src0=kernel["MacroTile1"], src1=sgpr(wg1), comment="wgp1 * MT1"))
+            module.add(ti.VAddU32(dst=vgpr(tid1), src0=sgpr(tmpSgpr), src1=vgpr(lsuTid1), comment="coord 1 = (tid0%MI_m) + waveG1*MIB_n + MT1*SG1"))
 
         # release resource
         writer.vgprPool.checkIn(dummy)
@@ -291,49 +292,49 @@ class ComputeStoreVgprsMFMASwap(ComputeStoreVgprs):
 
 
             # coord 1 : wave part
-            module.add(vectorStaticDivide(wave_id, "Serial", writer.states.kernel["WavefrontSize"], tmpVgpr1Res))
-            module.add(vectorStaticDivide(tmpVgpr0, wave_id, kernel["MIWaveGroup"][0], tmpVgpr1Res))
+            module.add(mathti.vectorStaticDivide(wave_id, "Serial", writer.states.kernel["WavefrontSize"], tmpVgpr1Res))
+            module.add(mathti.vectorStaticDivide(tmpVgpr0, wave_id, kernel["MIWaveGroup"][0], tmpVgpr1Res))
             if kernel["LocalSplitU"] > 1:
-                module.add(vectorStaticRemainder(dummy, tmpVgpr0, tmpVgpr0, kernel["MIWaveGroup"][1], tmpVgpr1Res, tmpSgprInfo))
-            module.add(VMulLOU32(dst=vgpr(tmpVgpr0), src0=hex(MIBShape1), src1=vgpr(tmpVgpr0), comment="wave coordination offset 1"))
+                module.add(mathti.vectorStaticRemainder(dummy, tmpVgpr0, tmpVgpr0, kernel["MIWaveGroup"][1], tmpVgpr1Res, tmpSgprInfo))
+            module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr0), src0=hex(MIBShape1), src1=vgpr(tmpVgpr0), comment="wave coordination offset 1"))
 
             # coord 1 : thread part
-            module.add(vectorStaticRemainder(dummy, tid1, "Serial", writer.states.kernel["WavefrontSize"], tmpVgpr1Res, tmpSgprInfo))
-            module.add(vectorStaticDivide(tid1, tid1, matrixInstM, tmpVgpr1Res))
-            module.add(staticMultiply(vgpr(tid1), vgpr(tid1), kernel["MIOutputVectorWidth"], tmpSgprInfo, "thread0 * continuous_output"))
-            module.add(VAddLShiftLeftU32(dst=vgpr(lsuTid1), src0=vgpr(tmpVgpr0), src1=vgpr(tid1), shiftHex=log2(kernel["VectorWidthB"]), comment="coordination 1 = vwB *(wave_id1 + tid1)"))
+            module.add(mathti.vectorStaticRemainder(dummy, tid1, "Serial", writer.states.kernel["WavefrontSize"], tmpVgpr1Res, tmpSgprInfo))
+            module.add(mathti.vectorStaticDivide(tid1, tid1, matrixInstM, tmpVgpr1Res))
+            module.add(mathti.staticMultiply(vgpr(tid1), vgpr(tid1), kernel["MIOutputVectorWidth"], tmpSgprInfo, "thread0 * continuous_output"))
+            module.add(ti.VAddLShiftLeftU32(dst=vgpr(lsuTid1), src0=vgpr(tmpVgpr0), src1=vgpr(tid1), shiftHex=log2(kernel["VectorWidthB"]), comment="coordination 1 = vwB *(wave_id1 + tid1)"))
 
             # coord 1 : offset part
             packedC1 = kernel["PackedC1IndicesX"]
             strideC1 = "StrideC%s" % (writer.states.indexChars[packedC1[0]])
             strideD1 = "StrideD%s" % (writer.states.indexChars[packedC1[0]])
-            module.add(VMulLOU32(dst=vgpr(writer.vgprs.cinRowPtr), src0=vgpr(lsuTid1), src1=sgpr(strideC1), comment=" offset 1"))
-            module.add(VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrD), src0=vgpr(lsuTid1), src1=sgpr(strideD1), comment=" offset 1"))
+            module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.cinRowPtr), src0=vgpr(lsuTid1), src1=sgpr(strideC1), comment=" offset 1"))
+            module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrD), src0=vgpr(lsuTid1), src1=sgpr(strideD1), comment=" offset 1"))
             if kernel["ProblemType"]["UseE"] and (kernel["GlobalSplitU"] == 1):
-                module.add(VMovB32(dst=vgpr(writer.vgprs.coutRowPtrE), src=vgpr(lsuTid1), comment=" save offset 1 for E"))
+                module.add(ti.VMovB32(dst=vgpr(writer.vgprs.coutRowPtrE), src=vgpr(lsuTid1), comment=" save offset 1 for E"))
             if writer.vgprs.coutRowPtrBias != -1:
                 index = packedC1[0] - 1
                 strideW1 = "Size%s" % "I" if index == 0 else ("J" if index == 1 else (writer.states.indexChars[index]))
-                module.add(VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrBias), src0=vgpr(lsuTid1), src1=sgpr(strideW1), comment=" offset 1"))
+                module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrBias), src0=vgpr(lsuTid1), src1=sgpr(strideW1), comment=" offset 1"))
 
             # coord 0 : wave part
-            module.add(vectorStaticRemainder(dummy, tid0, wave_id, kernel["MIWaveGroup"][0], tmpVgpr1Res, tmpSgprInfo))
-            module.add(VMulLOU32(dst=vgpr(tid0), src0=hex(MIBShape0), src1=vgpr(tid0), comment="wave coordination offset 0"))
+            module.add(mathti.vectorStaticRemainder(dummy, tid0, wave_id, kernel["MIWaveGroup"][0], tmpVgpr1Res, tmpSgprInfo))
+            module.add(ti.VMulLOU32(dst=vgpr(tid0), src0=hex(MIBShape0), src1=vgpr(tid0), comment="wave coordination offset 0"))
 
             # coord 0 : thread part
-            module.add(vectorStaticRemainder(dummy, tmpVgpr0, "Serial", matrixInstM, tmpVgpr1Res, tmpSgprInfo))
-            module.add(VAddLShiftLeftU32(dst=vgpr(lsuTid0), src0=vgpr(tmpVgpr0), src1=vgpr(tid0), shiftHex=log2(kernel["VectorWidthA"]), comment="coordination 0 = vwA * (wave_id0 + tid0)"))
+            module.add(mathti.vectorStaticRemainder(dummy, tmpVgpr0, "Serial", matrixInstM, tmpVgpr1Res, tmpSgprInfo))
+            module.add(ti.VAddLShiftLeftU32(dst=vgpr(lsuTid0), src0=vgpr(tmpVgpr0), src1=vgpr(tid0), shiftHex=log2(kernel["VectorWidthA"]), comment="coordination 0 = vwA * (wave_id0 + tid0)"))
 
             wg0="WorkGroup0"
             wg1="WorkGroup1"
 
             # macro tile 0 part
-            module.add(SMulI32(dst=sgpr(tmpSgpr), src0=kernel["MacroTile0"], src1=sgpr(wg0), comment="wgp0 * MT0"))
-            module.add(VAddU32(dst=vgpr(tid0), src0=sgpr(tmpSgpr), src1=vgpr(lsuTid0), comment="coord 0 = (tid0/MI_m)*4 + waveG0*MIB_m + MT0*SG0"))
+            module.add(ti.SMulI32(dst=sgpr(tmpSgpr), src0=kernel["MacroTile0"], src1=sgpr(wg0), comment="wgp0 * MT0"))
+            module.add(ti.VAddU32(dst=vgpr(tid0), src0=sgpr(tmpSgpr), src1=vgpr(lsuTid0), comment="coord 0 = (tid0/MI_m)*4 + waveG0*MIB_m + MT0*SG0"))
 
             # macro tile 1 part
-            module.add(SMulI32(dst=sgpr(tmpSgpr), src0=kernel["MacroTile1"], src1=sgpr(wg1), comment="wgp1 * MT1"))
-            module.add(VAddU32(dst=vgpr(tid1), src0=sgpr(tmpSgpr), src1=vgpr(lsuTid1), comment="coord 1 = (tid0%MI_m) + waveG1*MIB_n + MT1*SG1"))
+            module.add(ti.SMulI32(dst=sgpr(tmpSgpr), src0=kernel["MacroTile1"], src1=sgpr(wg1), comment="wgp1 * MT1"))
+            module.add(ti.VAddU32(dst=vgpr(tid1), src0=sgpr(tmpSgpr), src1=vgpr(lsuTid1), comment="coord 1 = (tid0%MI_m) + waveG1*MIB_n + MT1*SG1"))
 
         # release resource
         writer.vgprPool.checkIn(dummy)

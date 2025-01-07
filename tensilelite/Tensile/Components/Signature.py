@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,11 +25,11 @@
 from ..Component import Signature
 from ..Common import globalParameters
 from ..Utils import DataDirection
-from ..TensileInstructions import SignatureBase, getCOVFromParam
-from ..TensileInstructions import SignatureValueKind as SVK
+from ..TensileInstructions.Code import SignatureBase
+from ..TensileInstructions.Enums import SignatureValueKind as SVK
+from ..TensileInstructions.Utils import getCOVFromParam
 from ..Activation import ActivationType
 
-from math import ceil
 from dataclasses import dataclass, field
 
 @dataclass

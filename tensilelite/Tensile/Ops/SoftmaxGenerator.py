@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2023 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2023-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -280,7 +280,7 @@ class SoftmaxKernelGenerator:
             module.add(ti.SWaitCnt(vmcnt=0))
 
         return module, data_reg_idx
-        
+
     def local_read(self, ext_local_byte_offset_reg_idx: Optional[int] = None, sync: bool = True):
         module = ti.Module()
 
@@ -597,16 +597,16 @@ class SoftmaxKernelGenerator:
 
 def kernel_rodata(name: str, gfx_arch: Tuple[int, int, int]):
     header = ""
-    header += f'.rodata\n'
-    header += f'.p2align 6\n'
+    header += '.rodata\n'
+    header += '.p2align 6\n'
     header += f'.amdhsa_kernel {name}\n'
-    header += f'.amdhsa_user_sgpr_kernarg_segment_ptr 1\n'
-    header += f'.amdhsa_system_sgpr_workgroup_id_x 1\n'
+    header += '.amdhsa_user_sgpr_kernarg_segment_ptr 1\n'
+    header += '.amdhsa_system_sgpr_workgroup_id_x 1\n'
     if gfx_arch == (9, 0, 10) or (gfx_arch > (9, 4) and gfx_arch < (10, 0, 0)):
-        header += f'.amdhsa_accum_offset 8\n'
-    header += f'.amdhsa_next_free_vgpr .amdgcn.next_free_vgpr\n'
-    header += f'.amdhsa_next_free_sgpr .amdgcn.next_free_sgpr\n'
-    header += f'.end_amdhsa_kernel\n'
+        header += '.amdhsa_accum_offset 8\n'
+    header += '.amdhsa_next_free_vgpr .amdgcn.next_free_vgpr\n'
+    header += '.amdhsa_next_free_sgpr .amdgcn.next_free_sgpr\n'
+    header += '.end_amdhsa_kernel\n'
     return header
 
 @dataclass
@@ -619,7 +619,7 @@ class KernelArgument:
     def to_dict(self):
         d = {'.size': self.size, '.offset': self.offset,
              '.value_kind': self.value_kind}
-        
+
         if self.address_space:
             d['.address_space'] = self.address_space
 

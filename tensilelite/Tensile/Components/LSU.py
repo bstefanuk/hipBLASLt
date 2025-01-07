@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2024-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,12 +20,15 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from ..TensileInstructions import Module, Label, RegisterPoolResource, SCmpEQU32, \
-    SMovB32, log2, ceilDivide, SCBranchSCC0, Instruction, \
-    SAndB32, RegSet, vectorStaticDivide
+from ..TensileInstructions import Instructions as ti
+from ..TensileInstructions.Utils import vgpr, sgpr, log2, ceilDivide
+from ..TensileInstructions.Math import vectorStaticDivide
+from ..TensileInstructions.Code import RegSet, Label, Module
+from ..TensileInstructions.Containers import DSModifiers
+from ..TensileInstructions.RegisterPool import RegisterPoolResource
 from ..Component import Component
-from ..KernelWriterModules import *
 from ..AsmStoreState import StoreState, VectorDataTypes
+from ..Utils import DataDirection
 #import abc
 
 class LSU(Component):
@@ -182,7 +185,7 @@ class LSUOn(LSU):
             kernel["WavefrontSize"], tmpVgprRes))
         module.add(vectorStaticDivide(lsu_id, wave_id, numWaves, tmpVgprRes, \
             comment="Get LSU wave ID"))
-        module.add(VAndB32(vgpr(wave_id), hex(numWaves - 1), vgpr(wave_id), \
+        module.add(ti.VAndB32(vgpr(wave_id), hex(numWaves - 1), vgpr(wave_id), \
             comment="Get wave ID"))
 
         for reUseIdx in range(kernel["LocalSplitUReuseLDS"]):
@@ -208,7 +211,7 @@ class LSUOn(LSU):
 
             assert numAccVgpr > 0,"startLSUaccIdxSet=%u,endLSUaccIdxSet=%u,numAccIdx=%u"%(startLSUaccIdxSet,endLSUaccIdxSet,numAccIdx)
             accVgprRes = writer.vgprPool.checkOutAligned(numAccVgpr, 4, "accLSUVgprRes")
-            
+
             destIdx = 0
             for lsu in range(kernel["LocalSplitU"]):
                 for i in range(numVgprPerLSU):
@@ -227,39 +230,39 @@ class LSUOn(LSU):
 
             # Prepare Write/Read instruction info
             if bytesPerVector % 16 == 0:
-                DSStoreBX    = DSStoreB128
-                DSLoadBX     = DSLoadB128
+                DSStoreBX    = ti.DSStoreB128
+                DSLoadBX     = ti.DSLoadB128
                 numInstPerVW = bytesPerVector // 16
                 regsPerStore = 4
             elif bytesPerVector % 8 == 0:
-                DSStoreBX    = DSStoreB64
-                DSLoadBX     = DSLoadB64
+                DSStoreBX    = ti.DSStoreB64
+                DSLoadBX     = ti.DSLoadB64
                 numInstPerVW = bytesPerVector // 8
                 regsPerStore = 2
             else:
-                DSStoreBX    = DSStoreB32
-                DSLoadBX     = DSLoadB32
+                DSStoreBX    = ti.DSStoreB32
+                DSLoadBX     = ti.DSLoadB32
                 numInstPerVW = bytesPerVector // 4
                 regsPerStore = 1
 
             with writer.allocTmpSgpr(1) as tmpSgprInfo:
                 tmpSgpr = tmpSgprInfo.idx
-                module.add(SMovB32(dst=sgpr(tmpSgpr), src=hex(dataPerWave), \
+                module.add(ti.SMovB32(dst=sgpr(tmpSgpr), src=hex(dataPerWave), \
                     comment="dataPerWave (%d)"%dataPerWave))
-                module.add(VAndB32(vgpr(addr), hex(kernel["WavefrontSize"]-1), vgpr("Serial"), \
+                module.add(ti.VAndB32(vgpr(addr), hex(kernel["WavefrontSize"]-1), vgpr("Serial"), \
                     comment="initial addr"))
-                module.add(VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr(tmpSgpr), src1=vgpr(wave_id), \
+                module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr(tmpSgpr), src1=vgpr(wave_id), \
                     comment="tmp = waveId * dataPerWave"))
-                module.add(VLShiftLeftAddU32(dst=vgpr(addr), shiftHex=log2(regsPerStore * bpr), src0=vgpr(addr), src1=vgpr(tmpVgpr), \
+                module.add(ti.VLShiftLeftAddU32(dst=vgpr(addr), shiftHex=log2(regsPerStore * bpr), src0=vgpr(addr), src1=vgpr(tmpVgpr), \
                     comment="addr = initial addr + tmp"))
-                module.add(SMovB32(dst=sgpr(tmpSgpr), src=hex(ldsStride), \
+                module.add(ti.SMovB32(dst=sgpr(tmpSgpr), src=hex(ldsStride), \
                     comment="ldsStride = waveNum * dataPerWave (%d)"%ldsStride))
-                module.add(VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr(tmpSgpr), src1=vgpr(lsu_id), \
+                module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr(tmpSgpr), src1=vgpr(lsu_id), \
                     comment="tmp = (waveNum * dataPerWave) * lsu_id"))
-                module.add(VAddU32(vgpr(addr), vgpr(tmpVgpr), vgpr(addr), \
+                module.add(ti.VAddU32(vgpr(addr), vgpr(tmpVgpr), vgpr(addr), \
                     comment="addr += tmp"))
 
-            module.add(SWaitCnt(lgkmcnt=0, vscnt=0, comment="wait for all writes"))
+            module.add(ti.SWaitCnt(lgkmcnt=0, vscnt=0, comment="wait for all writes"))
             module.add(writer._syncThreads(kernel, "pre-lsu local write"))
 
             module.add(Label("localSplitULocalWrite_%d"%(reUseIdx+1), ""))
@@ -280,22 +283,22 @@ class LSUOn(LSU):
             # Calculate offset for wave id and lsu id
             with writer.allocTmpSgpr(1) as tmpSgprInfo:
                 tmpSgpr = tmpSgprInfo.idx
-                module.add(VAndB32(vgpr(addr), hex(kernel["WavefrontSize"]-1), vgpr("Serial"), \
+                module.add(ti.VAndB32(vgpr(addr), hex(kernel["WavefrontSize"]-1), vgpr("Serial"), \
                     comment="initial addr"))
-                module.add(SMovB32(dst=sgpr(tmpSgpr), src=hex(dataPerWave), \
+                module.add(ti.SMovB32(dst=sgpr(tmpSgpr), src=hex(dataPerWave), \
                     comment="wave offset (%d)"%dataPerWave))
-                module.add(VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr(tmpSgpr), src1=vgpr(wave_id), \
+                module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr(tmpSgpr), src1=vgpr(wave_id), \
                     comment="wave offset = wave_id * wave offset"))
-                module.add(VLShiftLeftAddU32(dst=vgpr(addr), shiftHex=log2(regsPerStore * bpr), src0=vgpr(addr), src1=vgpr(tmpVgpr), \
+                module.add(ti.VLShiftLeftAddU32(dst=vgpr(addr), shiftHex=log2(regsPerStore * bpr), src0=vgpr(addr), src1=vgpr(tmpVgpr), \
                     comment="addr = initial addr + wave offset"))
-                module.add(SMovB32(dst=sgpr(tmpSgpr), \
+                module.add(ti.SMovB32(dst=sgpr(tmpSgpr), \
                     src=hex(lsuProcessOffset), comment="LSU Process Offset %d"%(lsuProcessOffset)))
-                module.add(VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr(tmpSgpr), src1=vgpr(lsu_id), \
+                module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr(tmpSgpr), src1=vgpr(lsu_id), \
                     comment="lsu offset = lsu_id * LSU Process Offset"))
-                module.add(VAddU32(dst=vgpr(addr), src0=vgpr(addr), src1=vgpr(tmpVgpr), \
+                module.add(ti.VAddU32(dst=vgpr(addr), src0=vgpr(addr), src1=vgpr(tmpVgpr), \
                     comment="addr += lsu offset"))
 
-            module.add(SWaitCnt(lgkmcnt=0, vscnt=0, comment="wait for all writes"))
+            module.add(ti.SWaitCnt(lgkmcnt=0, vscnt=0, comment="wait for all writes"))
             module.add(writer._syncThreads(kernel, "post-lsu local write"))
             module.add(Label("localSplitULocalRead_%d"%(reUseIdx+1), ""))
 
@@ -321,16 +324,16 @@ class LSUOn(LSU):
                             numTotalInst  = numVgprPerLSU // self.LSUfullVw * numInstPerVW * kernel["LocalSplitU"]
                             numPassedInst = (i * numInstPerVW + (v + 1)) * kernel["LocalSplitU"]
                             numLRWaitCnt = numTotalInst - numPassedInst
-                            moduleReduction.add(SWaitCnt(lgkmcnt=numLRWaitCnt, comment="wait count is (%u-%u)"%(numTotalInst, numPassedInst)))
+                            moduleReduction.add(ti.SWaitCnt(lgkmcnt=numLRWaitCnt, comment="wait count is (%u-%u)"%(numTotalInst, numPassedInst)))
                             if writer.states.archCaps["SeparateVscnt"]:
-                                moduleReduction.add(SWaitCnt(vscnt=numLRWaitCnt))
+                                moduleReduction.add(ti.SWaitCnt(vscnt=numLRWaitCnt))
                         if r > 0:
                             for regToAdd in range(regsPerStore):
                                 if kernel["ProblemType"]["ComputeDataType"].isSingle():
-                                    moduleReduction.add(VAddF32(dst=vgpr("LsuReduction+%u"%(localReadVgprIdx+regToAdd)), src0=vgpr(vgprStr+regToAdd), \
+                                    moduleReduction.add(ti.VAddF32(dst=vgpr("LsuReduction+%u"%(localReadVgprIdx+regToAdd)), src0=vgpr(vgprStr+regToAdd), \
                                                 src1=vgpr("LsuReduction+%u"%(localReadVgprIdx+regToAdd)), comment=""))
                                 elif kernel["ProblemType"]["ComputeDataType"].isInt32():
-                                    moduleReduction.add(VAddI32(dst=vgpr("LsuReduction+%u"%(localReadVgprIdx+regToAdd)), src0=vgpr(vgprStr+regToAdd), \
+                                    moduleReduction.add(ti.VAddI32(dst=vgpr("LsuReduction+%u"%(localReadVgprIdx+regToAdd)), src0=vgpr(vgprStr+regToAdd), \
                                                 src1=vgpr("LsuReduction+%u"%(localReadVgprIdx+regToAdd)), comment=""))
                                 else:
                                 # TODO: hpa_half, int8
@@ -375,32 +378,32 @@ class LSUOn(LSU):
         with writer.allocTmpSgpr(1) as tmpSgprInfo:
             tmpSgpr = tmpSgprInfo.idx
             if self.LSUValidOffset0 > 0:
-                module.add(SMovB32(dst=sgpr(tmpSgpr), \
+                module.add(ti.SMovB32(dst=sgpr(tmpSgpr), \
                         src=hex(self.LSUValidOffset0), comment="a valid offset"))
-                module.add(VMulLOU32(dst=vgpr(tmpVgpr1), src0=vgpr(wave_id), src1=sgpr(tmpSgpr), comment="wave LSU offset"))
-                module.add(VAddU32(dst=vgpr(writer.vgprs.coord0), src0=vgpr(tmpVgpr1), src1=vgpr(writer.vgprs.coord0), comment="coord0 += LSU offset0"))
+                module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr1), src0=vgpr(wave_id), src1=sgpr(tmpSgpr), comment="wave LSU offset"))
+                module.add(ti.VAddU32(dst=vgpr(writer.vgprs.coord0), src0=vgpr(tmpVgpr1), src1=vgpr(writer.vgprs.coord0), comment="coord0 += LSU offset0"))
             else:
                 module.addComment0("valid offset coord0 is zero.")
 
             if self.LSUValidOffset1 > 0:
-                module.add(SMovB32(dst=sgpr(tmpSgpr), \
+                module.add(ti.SMovB32(dst=sgpr(tmpSgpr), \
                         src=hex(self.LSUValidOffset1), comment="a valid offset"))
-                module.add(VMulLOU32(dst=vgpr(tmpVgpr1), src0=vgpr(wave_id), src1=sgpr(tmpSgpr), comment="wave LSU offset"))
-                module.add(VAddU32(dst=vgpr(writer.vgprs.coord1), src0=vgpr(tmpVgpr1), src1=vgpr(writer.vgprs.coord1), comment="coord1 += LSU offset1"))
-                module.add(VAddU32(dst=vgpr(writer.vgprs.coord1InMT), src0=vgpr(tmpVgpr1), src1=vgpr(writer.vgprs.coord1InMT), comment="coord1InMT += LSU offset1"))
+                module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr1), src0=vgpr(wave_id), src1=sgpr(tmpSgpr), comment="wave LSU offset"))
+                module.add(ti.VAddU32(dst=vgpr(writer.vgprs.coord1), src0=vgpr(tmpVgpr1), src1=vgpr(writer.vgprs.coord1), comment="coord1 += LSU offset1"))
+                module.add(ti.VAddU32(dst=vgpr(writer.vgprs.coord1InMT), src0=vgpr(tmpVgpr1), src1=vgpr(writer.vgprs.coord1InMT), comment="coord1InMT += LSU offset1"))
 
                 # this code is from CouputeStoreVgprs. coord 1 : offset part
                 packedC1 = kernel["PackedC1IndicesX"]
                 strideC1 = "StrideC%s" % (writer.states.indexChars[packedC1[0]])
                 strideD1 = "StrideD%s" % (writer.states.indexChars[packedC1[0]])
-                module.add(VMulLOU32(dst=vgpr(writer.vgprs.cinRowPtr), src0=vgpr(writer.vgprs.coord1InMT), src1=sgpr(strideC1), comment=" offset 1"))
-                module.add(VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrD), src0=vgpr(writer.vgprs.coord1InMT), src1=sgpr(strideD1), comment=" offset 1"))
+                module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.cinRowPtr), src0=vgpr(writer.vgprs.coord1InMT), src1=sgpr(strideC1), comment=" offset 1"))
+                module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrD), src0=vgpr(writer.vgprs.coord1InMT), src1=sgpr(strideD1), comment=" offset 1"))
                 if kernel["ProblemType"]["UseE"] and (kernel["GlobalSplitU"] == 1):
-                        module.add(VMovB32(dst=vgpr(writer.vgprs.coutRowPtrE), src=vgpr(writer.vgprs.coord1InMT), comment=" save offset 1 for E"))
+                        module.add(ti.VMovB32(dst=vgpr(writer.vgprs.coutRowPtrE), src=vgpr(writer.vgprs.coord1InMT), comment=" save offset 1 for E"))
                 if writer.vgprs.coutRowPtrBias != -1:
                         index = packedC1[0] - 1
                         strideW1 = "Size%s" % "I" if index == 0 else ("J" if index == 1 else (writer.states.indexChars[index]))
-                        module.add(VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrBias), src0=vgpr(writer.vgprs.coord1InMT), src1=sgpr(strideW1), comment=" offset 1"))
+                        module.add(ti.VMulLOU32(dst=vgpr(writer.vgprs.coutRowPtrBias), src0=vgpr(writer.vgprs.coord1InMT), src1=sgpr(strideW1), comment=" offset 1"))
             else:
                 module.addComment0("valid offset coord1 is zero.")
 
@@ -421,20 +424,20 @@ class LSUOn(LSU):
             writer.vgprs.addrScaleAlphaVec = -1
         else:
             writer.vgprs.addrD = writer.vgprPool.checkOut(2)
-            module.add(VMovB32(
+            module.add(ti.VMovB32(
                     dst=vgpr(writer.vgprs.addrD+0), \
                     src=sgpr("AddressD+0"), \
                     comment="sgpr -> vgpr"))
-            module.add(VMovB32(
+            module.add(ti.VMovB32(
                     dst=vgpr(writer.vgprs.addrD+1), \
                     src=sgpr("AddressD+1"), \
                     comment="sgpr -> vgpr"))
             writer.vgprs.addrC = writer.vgprPool.checkOut(2)
-            module.add(VMovB32(
+            module.add(ti.VMovB32(
                     dst=vgpr(writer.vgprs.addrC+0), \
                     src=sgpr("AddressC+0"), \
                     comment="sgpr -> vgpr"))
-            module.add(VMovB32(
+            module.add(ti.VMovB32(
                     dst=vgpr(writer.vgprs.addrC+1), \
                     src=sgpr("AddressC+1"), \
                     comment="sgpr -> vgpr"))
@@ -442,55 +445,55 @@ class LSUOn(LSU):
             if kernel["GlobalSplitU"] > 0:
                 gsuLabel = Label(label=writer.labels.getNameInc("GSU"), comment="")
                 with writer.allocTmpSgpr(1) as tmpSgprGSU:
-                    module.add(SAndB32(dst=sgpr(tmpSgprGSU.idx), src0=sgpr("GSU"), src1=hex(0x3FFF), comment="Restore GSU"))
-                    module.add(SCmpEQU32(src0=sgpr(tmpSgprGSU.idx), src1=1, comment="GSU == 1 ?"))
-                module.add(SCBranchSCC0(labelName=gsuLabel.getLabelName(), comment="branch if GSU != 1"))
+                    module.add(ti.SAndB32(dst=sgpr(tmpSgprGSU.idx), src0=sgpr("GSU"), src1=hex(0x3FFF), comment="Restore GSU"))
+                    module.add(ti.SCmpEQU32(src0=sgpr(tmpSgprGSU.idx), src1=1, comment="GSU == 1 ?"))
+                module.add(ti.SCBranchSCC0(labelName=gsuLabel.getLabelName(), comment="branch if GSU != 1"))
             if kernel["ProblemType"]["UseE"]:
                 writer.vgprs.addrE = writer.vgprPool.checkOut(2, 'addrE')
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(writer.vgprs.addrE+0), \
                         src=sgpr("AddressE+0"), \
                         comment="sgpr -> vgpr"))
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(writer.vgprs.addrE+1), \
                         src=sgpr("AddressE+1"), \
                         comment="sgpr -> vgpr"))
             if writer.states.useBias == DataDirection.READ:
                 writer.vgprs.addrBias = writer.vgprPool.checkOut(2, 'addrBias')
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(writer.vgprs.addrBias+0), \
                         src=sgpr("AddressBias+0"), \
                         comment="sgpr -> vgpr"))
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(writer.vgprs.addrBias+1), \
                         src=sgpr("AddressBias+1"), \
                         comment="sgpr -> vgpr"))
             if (kernel["ProblemType"]["UseScaleAB"] == "Vector"):
                 writer.vgprs.addrScaleAVec = writer.vgprPool.checkOut(2, 'addrScaleAVec')
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(writer.vgprs.addrScaleAVec+0), \
                         src=sgpr("AddressScaleA+0"), \
                         comment="sgpr -> vgpr"))
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(writer.vgprs.addrScaleAVec+1), \
                         src=sgpr("AddressScaleA+1"), \
                         comment="sgpr -> vgpr"))
                 writer.vgprs.addrScaleBVec = writer.vgprPool.checkOut(2, 'addrScaleVVec')
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(writer.vgprs.addrScaleBVec+0), \
                         src=sgpr("AddressScaleB+0"), \
                         comment="sgpr -> vgpr"))
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(writer.vgprs.addrScaleBVec+1), \
                         src=sgpr("AddressScaleB+1"), \
                         comment="sgpr -> vgpr"))
             if kernel["ProblemType"]["UseScaleAlphaVec"]:
                 writer.vgprs.addrScaleAlphaVec = writer.vgprPool.checkOut(2, 'addrScaleAlphaVec')
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(self.vgprs.addrScaleAlphaVec+0), \
                         src=sgpr("AddressScaleAlphaVec+0"), \
                         comment="sgpr -> vgpr"))
-                module.add(VMovB32( \
+                module.add(ti.VMovB32( \
                         dst=vgpr(self.vgprs.addrScaleAlphaVec+1), \
                         src=sgpr("AddressScaleAlphaVec+1"), \
                         comment="sgpr -> vgpr"))

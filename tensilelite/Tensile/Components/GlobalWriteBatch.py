@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,21 +20,22 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from ..Common import globalParameters
+from ..Common import globalParameters, printExit
 from ..Component import GlobalWriteComponents
 from ..SolutionStructs import Solution
-from ..Activation import ActivationModule, ActivationType
+from ..Activation import ActivationModule
 from ..AsmStoreState import StoreState
 from ..Utils import DataDirection
-from ..TensileInstructions import Label, Module, EXEC, SDWAModifiers, VCC, SelectBit, \
-                            vgpr, sgpr, replaceHolder, SaturateCastType, VCvtBF16toFP32, \
-                            DataType, CvtType, RoundType
-from ..TensileInstructions.Instructions import *
+from ..TensileInstructions import Instructions as ti
+from ..TensileInstructions import ExtInstructions as exti
+from ..TensileInstructions.Code import Label, Module
+from ..TensileInstructions.Containers import MUBUFModifiers, FLATModifiers, SDWAModifiers, EXEC, VCC
+from ..TensileInstructions.Enums import SelectBit, CvtType, RoundType
+from ..TensileInstructions.Utils import DataType, vgpr, sgpr, replaceHolder, log2
 from ..AsmAddressCalculation import AddrCalculation
 from ..Components.PackData import formatting, PackData_F16, PackData_BF16
 
 from math import ceil
-from ..TensileInstructions import log2
 
 class GlobalWriteBatchComponent(GlobalWriteComponents):
   kernel = {"ProblemType": {"OperationType": "GEMM" }}
@@ -136,16 +137,16 @@ class GlobalWriteBatchWriter:
     return "globalWriteBatch (Atomic)" if self.atomic else "globalWriteBatch (Non atomic)"
 
   def getEdgeMovInstType(self):
-    return SMovB32 if self.wavelen == 32 else SMovB64
+    return ti.SMovB32 if self.wavelen == 32 else ti.SMovB64
 
   def getEdgeOrInstType(self):
-    return SOrB32 if self.wavelen == 32 else SOrB64
+    return ti.SOrB32 if self.wavelen == 32 else ti.SOrB64
 
   def getEdgeAndInstType(self):
-    return SAndB32 if self.wavelen == 32 else SAndB64
+    return ti.SAndB32 if self.wavelen == 32 else ti.SAndB64
 
   def getSOrSaveExecType(self):
-    return SOrSaveExecB32 if self.wavelen == 32 else SOrSaveExecB64
+    return ti.SOrSaveExecB32 if self.wavelen == 32 else ti.SOrSaveExecB64
 
   def emit(self) -> Module:
     assert self._checkAtomicPreconditions()
@@ -223,7 +224,7 @@ class GlobalWriteBatchWriter:
             tmp += " - %s"%cntStr
           comment = comment + (" " if comment else "") + "lgkmcnt(%d) = %d%s"%(lgkmcnt, lgkmcntTotalIssued, tmp)
         if not self.kernel["_GlobalAccumulation"] == "MultipleBufferSingleKernel":
-          return SWaitCnt(lgkmcnt=lgkmcnt, vmcnt=vmcnt, vscnt=vscnt, comment="%s (interleaved)"%comment)
+          return ti.SWaitCnt(lgkmcnt=lgkmcnt, vmcnt=vmcnt, vscnt=vscnt, comment="%s (interleaved)"%comment)
     else:
       commentList = []
       # Global read wait
@@ -248,7 +249,7 @@ class GlobalWriteBatchWriter:
         comment = "wait for " + commentList[0]
         for c in commentList[1:]:
           comment += ", %s"%c
-        return SWaitCnt(lgkmcnt=lgkmcnt, vmcnt=vmcnt, vscnt=vscnt, comment=comment)
+        return ti.SWaitCnt(lgkmcnt=lgkmcnt, vmcnt=vmcnt, vscnt=vscnt, comment=comment)
     return None
 
   ##############################################################################
@@ -259,28 +260,28 @@ class GlobalWriteBatchWriter:
     module = Module("chooseAddForAtomic")
     if kernel["ProblemType"]["DataType"].isBFloat16():
       if kernel["_GlobalAccumulation"]:
-        module.add(VAddF32(dst, src0, src1, comment=comment))
+        module.add(ti.VAddF32(dst, src0, src1, comment=comment))
     elif kernel["ProblemType"]["DataType"].isHalf():
       if kernel["_GlobalAccumulation"]:
-        module.add(VAddF32(dst, src0, src1, comment=comment))
+        module.add(ti.VAddF32(dst, src0, src1, comment=comment))
       elif kernel["ProblemType"]["HighPrecisionAccumulate"]:
         if self.parentWriter.states.asmCaps["v_fma_mix_f32"]:
-          module.add(VFmaMixF32(dst, src0, 1, src1, comment=comment))
+          module.add(ti.VFmaMixF32(dst, src0, 1, src1, comment=comment))
         elif self.parentWriter.states.asmCaps["v_mad_mix_f32"]:
-          module.add(VMadMixF32(dst, src0, 1, src1, comment=comment))
+          module.add(ti.VMadMixF32(dst, src0, 1, src1, comment=comment))
         else:
           assert False, "No valid v_mad_mix_f32 equivalent"
       else:
-        module.add(VAddPKF16(dst, src0, src1, comment))
+        module.add(ti.VAddPKF16(dst, src0, src1, comment))
     elif kernel["ProblemType"]["DataType"].isInt8x4() or kernel["ProblemType"]["DataType"].isInt8():
       # assume v_add_i32 can be used in place of v_add_f32
       # need to add saturation directive to v_add_i32 instruction to clamp integer arithmetic
-      module.add(VAddI32(dst, src0, src1, comment=comment))
+      module.add(ti.VAddI32(dst, src0, src1, comment=comment))
     elif kernel["ProblemType"]["DataType"].isSingle():
-      module.add(VAddF32(dst, src0, src1, comment=comment))
+      module.add(ti.VAddF32(dst, src0, src1, comment=comment))
     else:
        #support for double
-      module.add(VAddF64(dst, src0, src1, comment=comment))
+      module.add(ti.VAddF64(dst, src0, src1, comment=comment))
 
     return module
 
@@ -300,37 +301,37 @@ class GlobalWriteBatchWriter:
     tmpS01 = self.parentWriter.sgprPool.checkOut(1, preventOverflow=False) #
     tmpS03 = self.parentWriter.sgprPool.checkOut(1, preventOverflow=False) #
 
-    module.add(SMulI32(dst=sgpr(tmpS03), src0=sgpr("NumWorkGroups1"), src1=sgpr("NumWorkGroups0"), comment=""))
-    module.add(SMulI32(dst=sgpr(tmpS02), src0=sgpr(tmpS03), src1=sgpr("WorkGroup2"), comment=""))
-    module.add(SMulI32(dst=sgpr(tmpS01), src0=sgpr("WorkGroup1"), src1=sgpr("NumWorkGroups0"), comment=""))
-    module.add(SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=sgpr("WorkGroup0")))
-    module.add(SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=sgpr(tmpS02)))
+    module.add(ti.SMulI32(dst=sgpr(tmpS03), src0=sgpr("NumWorkGroups1"), src1=sgpr("NumWorkGroups0"), comment=""))
+    module.add(ti.SMulI32(dst=sgpr(tmpS02), src0=sgpr(tmpS03), src1=sgpr("WorkGroup2"), comment=""))
+    module.add(ti.SMulI32(dst=sgpr(tmpS01), src0=sgpr("WorkGroup1"), src1=sgpr("NumWorkGroups0"), comment=""))
+    module.add(ti.SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=sgpr("WorkGroup0")))
+    module.add(ti.SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=sgpr(tmpS02)))
 
-    module.add(VReadfirstlaneB32(dst=sgpr(tmpS02), src=vgpr("Serial")))
+    module.add(ti.VReadfirstlaneB32(dst=sgpr(tmpS02), src=vgpr("Serial")))
 
-    module.add(SMulI32(dst=sgpr(tmpS03), src0=sgpr(tmpS03), src1=sgpr("SizeK"), comment="cal a wave offset"))
-    module.add(SLShiftRightB32(dst=sgpr(tmpS02), shiftHex=hex(log2(self.kernel["WavefrontSize"])), src=sgpr(tmpS02)))
-    module.add(SMulI32(dst=sgpr(tmpS02), src0=sgpr(tmpS03), src1=sgpr(tmpS02), comment="wave offset at batch")) # WaveId*WgNum
-    module.add(SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS02), src1=sgpr(tmpS01))) # WaveId*WgNum+WgId
+    module.add(ti.SMulI32(dst=sgpr(tmpS03), src0=sgpr(tmpS03), src1=sgpr("SizeK"), comment="cal a wave offset"))
+    module.add(ti.SLShiftRightB32(dst=sgpr(tmpS02), shiftHex=hex(log2(self.kernel["WavefrontSize"])), src=sgpr(tmpS02)))
+    module.add(ti.SMulI32(dst=sgpr(tmpS02), src0=sgpr(tmpS03), src1=sgpr(tmpS02), comment="wave offset at batch")) # WaveId*WgNum
+    module.add(ti.SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS02), src1=sgpr(tmpS01))) # WaveId*WgNum+WgId
     if self.batchIdx > 0:
-      module.add(SMulI32(dst=sgpr(tmpS03), src0=sgpr(tmpS03), src1=int(WaveNum), comment="cal a batch offset")) # WgNum*WaveNum
-      module.add(SMulI32(dst=sgpr(tmpS03), src0=sgpr(tmpS03), src1=self.batchIdx, comment="this batch offset")) # WgNum*WaveNum*Batch
-      module.add(SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=sgpr(tmpS03))) # WaveId*WgNum+WgId + WgNum*WaveNum*Batch
-    module.add(SLShiftLeftB32(dst=sgpr(tmpS01), src=sgpr(tmpS01), shiftHex=hex(2), comment="")) # atomic 32bits
+      module.add(ti.SMulI32(dst=sgpr(tmpS03), src0=sgpr(tmpS03), src1=int(WaveNum), comment="cal a batch offset")) # WgNum*WaveNum
+      module.add(ti.SMulI32(dst=sgpr(tmpS03), src0=sgpr(tmpS03), src1=self.batchIdx, comment="this batch offset")) # WgNum*WaveNum*Batch
+      module.add(ti.SAddU32(dst=sgpr(tmpS01), src0=sgpr(tmpS01), src1=sgpr(tmpS03))) # WaveId*WgNum+WgId + WgNum*WaveNum*Batch
+    module.add(ti.SLShiftLeftB32(dst=sgpr(tmpS01), src=sgpr(tmpS01), shiftHex=hex(2), comment="")) # atomic 32bits
     #####################################set synchronizer
-    module.add(SAddU32(dst=sgpr("SrdSync+0"), \
+    module.add(ti.SAddU32(dst=sgpr("SrdSync+0"), \
                                     src0=sgpr("Synchronizer+0"), \
                                     src1=sgpr(tmpS01), \
                                     comment="" ))
-    module.add(SAddCU32(dst=sgpr("SrdSync+1"), \
+    module.add(ti.SAddCU32(dst=sgpr("SrdSync+1"), \
                         src0=sgpr("Synchronizer+1"), \
                         src1=hex(0), \
                         comment="" ))
 
-    module.add(SWaitCnt(waitAll=True, comment="wait store done before synchronizer start load and add"))
-    module.add(SAndB32(dst=sgpr(tmpS02), src0=sgpr("GSU"), src1=hex(0x3FFF), comment="Restore GSU"))
-    module.add(SSubU32(dst=sgpr(tmpS02), src0=sgpr(tmpS02), src1=hex(1), comment=""))
-    module.add(SAtomicDec(dst=sgpr(tmpS02), base=sgpr("SrdSync", 2), smem=SMEMModifiers(glc=1)))
+    module.add(ti.SWaitCnt(waitAll=True, comment="wait store done before synchronizer start load and add"))
+    module.add(ti.SAndB32(dst=sgpr(tmpS02), src0=sgpr("GSU"), src1=hex(0x3FFF), comment="Restore GSU"))
+    module.add(ti.SSubU32(dst=sgpr(tmpS02), src0=sgpr(tmpS02), src1=hex(1), comment=""))
+    module.add(ti.SAtomicDec(dst=sgpr(tmpS02), base=sgpr("SrdSync", 2), smem=ti.SMEMModifiers(glc=1)))
     module.addSpaceLine()
     #####################################cal synchronizer sum offset#####################################
     module.addComment("synchronizer sum offset cal")
@@ -344,14 +345,14 @@ class GlobalWriteBatchWriter:
       tmpSgpr = tmpSgprInfo.idx
       module.addModuleAsFlatItems(self.parentWriter.s_mul_u64_u32(sgpr(tmpSgpr+0), sgpr(tmpSgpr+1), sgpr("SizesFree+0"), 1, self.tmpVgpr, "Free0"))
       for i in range(1, numDim):
-        module.add(SSubU32(dst=sgpr(tmpSgpr+4), src0=sgpr("SizesFree+%u"%i), src1=1, comment="Free%u" % i))
-        module.add(SMulI32(dst=sgpr(tmpSgpr+4), src0=sgpr(tmpSgpr+4), src1=1, comment="Free%u" % i))
+        module.add(ti.SSubU32(dst=sgpr(tmpSgpr+4), src0=sgpr("SizesFree+%u"%i), src1=1, comment="Free%u" % i))
+        module.add(ti.SMulI32(dst=sgpr(tmpSgpr+4), src0=sgpr(tmpSgpr+4), src1=1, comment="Free%u" % i))
         module.addModuleAsFlatItems(self.parentWriter.s_mul_u64_u32(sgpr(tmpSgpr+2), sgpr(tmpSgpr+3), sgpr(tmpSgpr+4), sgpr("StrideC%s"%self.parentWriter.states.indexChars[i]), self.tmpVgpr, "Free%u" % i))
-        module.add(SAddU32(dst=sgpr(tmpSgpr+0), src0=sgpr(tmpSgpr+0), src1=sgpr(tmpSgpr+2), comment="Free%u" % i))
-        module.add(SAddCU32(dst=sgpr(tmpSgpr+1), src0=sgpr(tmpSgpr+1), src1=sgpr(tmpSgpr+3), comment="Free%u" % i))
+        module.add(ti.SAddU32(dst=sgpr(tmpSgpr+0), src0=sgpr(tmpSgpr+0), src1=sgpr(tmpSgpr+2), comment="Free%u" % i))
+        module.add(ti.SAddCU32(dst=sgpr(tmpSgpr+1), src0=sgpr(tmpSgpr+1), src1=sgpr(tmpSgpr+3), comment="Free%u" % i))
 
       bpetmp = int(self.parentWriter.states.bpr * self.kernel["ProblemType"]["DestDataType"].numRegisters()) # self.states.bpeCinternal
-      module.add(SLShiftLeftB64(dst=sgpr(tmpS04,2), src=sgpr(tmpSgpr+0,2), shiftHex=log2(self.parentWriter.states.bpeCexternal), comment="scale by bpe"))
+      module.add(ti.SLShiftLeftB64(dst=sgpr(tmpS04,2), src=sgpr(tmpSgpr+0,2), shiftHex=log2(self.parentWriter.states.bpeCexternal), comment="scale by bpe"))
 
     module.addSpaceLine()
     #####################################cal synchronizer sum start#####################################
@@ -360,8 +361,8 @@ class GlobalWriteBatchWriter:
     checkSyncCode = Module("check synchronizer done")
     checkSyncCode.addComment("check synchronizer done")
 
-    checkSyncCode.add(SWaitCnt(lgkmcnt=0, comment="Wait for synchronizer"))
-    checkSyncCode.add(SCmpEQU32(
+    checkSyncCode.add(ti.SWaitCnt(lgkmcnt=0, comment="Wait for synchronizer"))
+    checkSyncCode.add(ti.SCmpEQU32(
         src0=sgpr(tmpS02), \
         src1=hex(1), \
         comment=""))
@@ -379,7 +380,7 @@ class GlobalWriteBatchWriter:
       rowIncrement.add(AddrCalculation.incrementSrdMultipleRows("SrdTD", f"StrideD{pIdx}", tmpS01, totalNumRows, dstBpe))
       rowIncrement.add(AddrCalculation.incrementSrdMultipleRows("WSDstart", f"StrideD{pIdx}", tmpS01, totalNumRows, wsBpe))
 
-    insertIndex = branch.findIndexByType(SCBranchSCC1)
+    insertIndex = branch.findIndexByType(ti.SCBranchSCC1)
 
     if insertIndex is not None and rowIncrement.count():
       branch.add(rowIncrement, insertIndex+1)
@@ -416,12 +417,12 @@ class GlobalWriteBatchWriter:
         SynchronizerAddEndlabel[idx] = Label(self.parentWriter.labels.getNameInc(SynchronizerAddEndlabelString), SynchronizerAddEndComment)
 
       bufferOOB = self.tmpVgpr + self.tmpVgprSize - 1
-      module.add(VMovB32(dst=vgpr(bufferOOB), src="BufferOOB"))
+      module.add(ti.VMovB32(dst=vgpr(bufferOOB), src="BufferOOB"))
 
-      module.add(SMovB32(sgpr(tmpS06+0), sgpr("WSDstart+0"), "Move workspace start"))
-      module.add(SMovB32(sgpr(tmpS06+1), sgpr("WSDstart+1"), "Move workspace start"))
-      module.add(SMovB32(sgpr(tmpS06+2), sgpr("SrdD+2"), ""))
-      module.add(SMovB32(sgpr(tmpS06+3), sgpr("SrdD+3"), ""))
+      module.add(ti.SMovB32(sgpr(tmpS06+0), sgpr("WSDstart+0"), "Move workspace start"))
+      module.add(ti.SMovB32(sgpr(tmpS06+1), sgpr("WSDstart+1"), "Move workspace start"))
+      module.add(ti.SMovB32(sgpr(tmpS06+2), sgpr("SrdD+2"), ""))
+      module.add(ti.SMovB32(sgpr(tmpS06+3), sgpr("SrdD+3"), ""))
 
       if elementIdx == 0:
         # Insert check synchronizer done code here for better scheduling
@@ -431,11 +432,11 @@ class GlobalWriteBatchWriter:
         addrCalctmp: AddrCalculation = self.ss.elementAddr[times]
         if self.ss.optSrdIncForRow and addrCalctmp.rowInc:
           module.add(addrCalctmp.incrementToNextRow(self.kernel, "D", self.ss, tmpS05, dst=tmpS06))
-          module.add(SAddU32(dst=sgpr("WSDstart+0"), \
+          module.add(ti.SAddU32(dst=sgpr("WSDstart+0"), \
                                             src0=sgpr("WSDstart+0"), \
                                             src1=sgpr(tmpS05), \
                                             comment="" ))
-          module.add(SAddCU32(dst=sgpr("WSDstart+1"), \
+          module.add(ti.SAddCU32(dst=sgpr("WSDstart+1"), \
                               src0=sgpr("WSDstart+1"), \
                               src1=hex(0), \
                               comment="" ))
@@ -449,7 +450,7 @@ class GlobalWriteBatchWriter:
                       comment="load GSU D 0 "+str(vgprstart)))
       SyncloadedData += 1
 
-      module.add(SAndB32(dst=sgpr("GSUSync"), src0=sgpr("GSU"), src1=hex(0x3FFF), comment="Restore GSU"))
+      module.add(ti.SAndB32(dst=sgpr("GSUSync"), src0=sgpr("GSU"), src1=hex(0x3FFF), comment="Restore GSU"))
 
       SynchronizerlabelString = "Synchronizer_read_add"
       SynchronizerComment = "Synchronizer read add"
@@ -461,19 +462,19 @@ class GlobalWriteBatchWriter:
       GSUP1 = GSUtotal-1
 
       for i in range(0,GSUP1):
-        module.add(SSubI32(dst=sgpr("GSUSync"), src0=sgpr("GSUSync"), src1=1, comment="%u" % i))
+        module.add(ti.SSubI32(dst=sgpr("GSUSync"), src0=sgpr("GSUSync"), src1=1, comment="%u" % i))
 
-        module.add(SAddU32(dst=sgpr(tmpS06+0), \
+        module.add(ti.SAddU32(dst=sgpr(tmpS06+0), \
                                         src0=sgpr(tmpS06+0), \
                                         src1=sgpr(tmpS04+0), \
                                         comment="" ))
-        module.add(SAddCU32(dst=sgpr(tmpS06+1), \
+        module.add(ti.SAddCU32(dst=sgpr(tmpS06+1), \
                             src0=sgpr(tmpS06+1), \
                             src1=sgpr(tmpS04+1), \
                             comment="" ))
 
-        module.add(SCmpEQI32(src0=sgpr("GSUSync"), src1=0, comment=""))#GSUSync+GSUP1==GSU
-        module.add(SCBranchSCC1(labelName=SynchronizerAddEndlabel[i].getLabelName(), comment="SyncAddbranchhere"))
+        module.add(ti.SCmpEQI32(src0=sgpr("GSUSync"), src1=0, comment=""))#GSUSync+GSUP1==GSU
+        module.add(ti.SCBranchSCC1(labelName=SynchronizerAddEndlabel[i].getLabelName(), comment="SyncAddbranchhere"))
 
         if(self.kernel["ProblemType"]["DestDataType"].numRegisters() > 1):
           module.add(self.parentWriter.chooseGlobalRead(True, bps, tmpVAdd+self.gwvw*self.kernel["ProblemType"]["DestDataType"].numRegisters()*i, \
@@ -498,32 +499,32 @@ class GlobalWriteBatchWriter:
       for i in range(0, GSUP1):
         module.addSpaceLine()
         vmcnt = SyncloadedData = SyncloadedData -1
-        module.add(SWaitCnt(lgkmcnt=lgkmcnt, vmcnt=vmcnt, vscnt=vscnt, comment="(wait for buffer ready)"))
+        module.add(ti.SWaitCnt(lgkmcnt=lgkmcnt, vmcnt=vmcnt, vscnt=vscnt, comment="(wait for buffer ready)"))
 
         if ((self.gwvw % 2) == 1):
           for j in range(0, int(self.gwvw)):
-            module.add(VAddF32(dst=vgpr(vgprstart+j), src0=vgpr(vgprstart+j), src1=vgpr(tmpVAdd+0+self.gwvw*i+j), \
+            module.add(ti.VAddF32(dst=vgpr(vgprstart+j), src0=vgpr(vgprstart+j), src1=vgpr(tmpVAdd+0+self.gwvw*i+j), \
                           comment="buffer add"))
         else:
           for j in range(0, int(self.gwvw/2)):
-            module.add(VAddPKF32(dst=vgpr(vgprstart+j*2, 2), src0=vgpr(vgprstart+j*2, 2), \
+            module.add(ti.VAddPKF32(dst=vgpr(vgprstart+j*2, 2), src0=vgpr(vgprstart+j*2, 2), \
                               src1=vgpr(tmpVAdd+0+self.gwvw*i+j*2, 2), comment="buffer pk"))
 
-        module.add(SSubI32(dst=sgpr("GSUSync"), src0=sgpr("GSUSync"), src1=1, comment="%u" % i))
-        module.add(SCmpLeI32(src0=sgpr("GSUSync"), src1=0-(GSUP1-1), comment=""))#GSUSync+GSUP1==GSU
-        module.add(SCBranchSCC1(labelName=SynchronizerAddSkiplabel.getLabelName(), comment="SyncAddbranch"))
+        module.add(ti.SSubI32(dst=sgpr("GSUSync"), src0=sgpr("GSUSync"), src1=1, comment="%u" % i))
+        module.add(ti.SCmpLeI32(src0=sgpr("GSUSync"), src1=0-(GSUP1-1), comment=""))#GSUSync+GSUP1==GSU
+        module.add(ti.SCBranchSCC1(labelName=SynchronizerAddSkiplabel.getLabelName(), comment="SyncAddbranch"))
 
-        module.add(SAddU32(dst=sgpr(tmpS06+0), \
+        module.add(ti.SAddU32(dst=sgpr(tmpS06+0), \
                                         src0=sgpr(tmpS06+0), \
                                         src1=sgpr(tmpS04+0), \
                                         comment="" ))
-        module.add(SAddCU32(dst=sgpr(tmpS06+1), \
+        module.add(ti.SAddCU32(dst=sgpr(tmpS06+1), \
                             src0=sgpr(tmpS06+1), \
                             src1=sgpr(tmpS04+1), \
                             comment="" ))
 
-        module.add(VCmpGEI32(dst=sgpr(tmpS05,2), src0=0, src1=sgpr("GSUSync"), comment=""))
-        module.add(VCndMaskB32(
+        module.add(ti.VCmpGEI32(dst=sgpr(tmpS05,2), src0=0, src1=sgpr("GSUSync"), comment=""))
+        module.add(ti.VCndMaskB32(
               dst=vgpr(GSUMvgpr), \
               src1=vgpr(bufferOOB), \
               src0=addr0, \
@@ -543,11 +544,11 @@ class GlobalWriteBatchWriter:
 
       module.addComment("buffer add end\n")
 
-      module.add(SCmpGtI32(
+      module.add(ti.SCmpGtI32(
         src0=sgpr("GSUSync"), \
         src1=hex(1-(GSUP1)), \
         comment=""))
-      module.add(SCBranchSCC1(labelName=Synchronizerlabel.getLabelName(), comment="Syncbranchhere"))
+      module.add(ti.SCBranchSCC1(labelName=Synchronizerlabel.getLabelName(), comment="Syncbranchhere"))
 
       #####################################< GSUtotal reduction start#####################################
       for k in range(GSUtotal-2, -1, -1):
@@ -558,19 +559,19 @@ class GlobalWriteBatchWriter:
         for i in range(0, k):
           module.addSpaceLine()
           vmcnt = vmcnt -1 if vmcnt > 0 else 0
-          module.add(SWaitCnt(lgkmcnt=lgkmcnt, vmcnt=vmcnt, vscnt=vscnt, comment="(wait for buffer ready)"))
+          module.add(ti.SWaitCnt(lgkmcnt=lgkmcnt, vmcnt=vmcnt, vscnt=vscnt, comment="(wait for buffer ready)"))
 
           if ((self.gwvw % 2) == 1):
             for j in range(0, int(self.gwvw)):
-              module.add(VAddF32(dst=vgpr(vgprstart+j), src0=vgpr(vgprstart+j), src1=vgpr(tmpVAdd+0+self.gwvw*i+j), \
+              module.add(ti.VAddF32(dst=vgpr(vgprstart+j), src0=vgpr(vgprstart+j), src1=vgpr(tmpVAdd+0+self.gwvw*i+j), \
                             comment="buffer add"))
           else:
             for j in range(0, int(self.gwvw/2)):
-              module.add(VAddPKF32(dst=vgpr(vgprstart+j*2, 2), src0=vgpr(vgprstart+j*2, 2), \
+              module.add(ti.VAddPKF32(dst=vgpr(vgprstart+j*2, 2), src0=vgpr(vgprstart+j*2, 2), \
                                 src1=vgpr(tmpVAdd+0+self.gwvw*i+j*2, 2), comment="buffer pk"))
 
           if i == k-1:
-            module.add(SBranch(labelName=SynchronizerAddSkiplabel.getLabelName(), comment="SyncAddbranch"))
+            module.add(ti.SBranch(labelName=SynchronizerAddSkiplabel.getLabelName(), comment="SyncAddbranch"))
 
       module.add(SynchronizerAddSkiplabel)
 
@@ -626,11 +627,11 @@ class GlobalWriteBatchWriter:
     # for the top-left corner this thread will write.  These are not changed
     # across all the store loop iters.
     if self.debugConfig["ConservativeWaitCnt"] & 0x10:
-      module.add(SBarrier("debug"))
-      module.add(SWaitCnt(vmcnt=0, comment="ConservativeWaitCnt"))
+      module.add(ti.SBarrier("debug"))
+      module.add(ti.SWaitCnt(vmcnt=0, comment="ConservativeWaitCnt"))
       if self.parentWriter.states.archCaps["SeparateVscnt"]:
-        module.add(SWaitCnt(vscnt=0, comment="writes"))
-      module.add(SBarrier("debug"))
+        module.add(ti.SWaitCnt(vscnt=0, comment="writes"))
+      module.add(ti.SBarrier("debug"))
     if not self.edge and self.debugConfig["ForceEdgeStores"] >= 2:
       module.add(self.parentWriter.getBomb()) # should not get here
     if self.edge and self.debugConfig["AssertNoEdge"]:
@@ -666,7 +667,7 @@ class GlobalWriteBatchWriter:
 
     if self.kernel["BufferStore"] and self.edge:
       bufferOOB = self.tmpVgpr + self.tmpVgprSize - 1
-      module.add(VMovB32(dst=vgpr(bufferOOB), src="BufferOOB"))
+      module.add(ti.VMovB32(dst=vgpr(bufferOOB), src="BufferOOB"))
     else:
       bufferOOB = None
     #when factorDim = 1 the bias's gwvw is alwasy be 1.
@@ -732,14 +733,14 @@ class GlobalWriteBatchWriter:
           if self.kernel["GroupLoadStore"]:
             # Group bias load with C input to
             if ((self.kernel["GlobalSplitU"] == 1) or (self.kernel["GlobalSplitUAlgorithm"] == "MultipleBufferSingleKernel")) and (not self.isLocalBarrierInit):
-              loadInputCode.add(SWaitCnt(lgkmcnt=0, comment="Wait for LDS write"))
-              loadInputCode.add(SBarrier("LDS write barrier"))
+              loadInputCode.add(ti.SWaitCnt(lgkmcnt=0, comment="Wait for LDS write"))
+              loadInputCode.add(ti.SBarrier("LDS write barrier"))
               self.isLocalBarrierInit = True
             loadInputCode.add(self.parentWriter.addLdsLoad(self.kernel["ProblemType"]["ComputeDataType"], dataVec, ldsAddrVgpr, vecOffset, gwvw, comment=comment))
           else:
             if ((self.kernel["GlobalSplitU"] == 1) or (self.kernel["GlobalSplitUAlgorithm"] == "MultipleBufferSingleKernel")) and (not self.isLocalBarrierInit):
-              module.add(SWaitCnt(lgkmcnt=0, comment="Wait for LDS write"))
-              module.add(SBarrier("LDS write barrier"))
+              module.add(ti.SWaitCnt(lgkmcnt=0, comment="Wait for LDS write"))
+              module.add(ti.SBarrier("LDS write barrier"))
               self.isLocalBarrierInit = True
             module.add(self.parentWriter.addLdsLoad(self.kernel["ProblemType"]["ComputeDataType"], dataVec, ldsAddrVgpr, vecOffset, gwvw, comment=comment))
           loadedDataVec[dataVec] = ceil(self.kernel["ProblemType"]["ComputeDataType"].numBytes() * gwvw / 16)
@@ -832,9 +833,9 @@ class GlobalWriteBatchWriter:
       if not self.kernel["BufferStore"]:
         offsetSrc = (self.tmpVgpr + 2) if self.beta else addrDVgpr
 
-        module.add(VAddCOU32(vgpr(addrDVgpr+0), VCC(), vgpr(self.addrD+0), \
+        module.add(ti.VAddCOU32(vgpr(addrDVgpr+0), VCC(), vgpr(self.addrD+0), \
             vgpr(offsetSrc+0), "addrDVgpr = D + index*bytes (lo)"))
-        module.add(VAddCCOU32(vgpr(addrDVgpr+1), VCC(), vgpr(self.addrD+1), \
+        module.add(ti.VAddCCOU32(vgpr(addrDVgpr+1), VCC(), vgpr(self.addrD+1), \
             vgpr(offsetSrc+1), VCC(), "addrDVgpr = D + index*bytes (hi)"))
 
         # restore full exec mask for calculating addr of next element
@@ -848,8 +849,8 @@ class GlobalWriteBatchWriter:
             printExit("Use E does not support StoreRemapVectorWidth if GSU == 1.")
             # module.add(addrCalc.incrementToNextRow(self.kernel, "E", self.ss, self.tmpS01, isCompute=True))
           module.add(addrCalc.incrementToNextRow(self.kernel, "D", self.ss, self.tmpS01))
-          module.add(VMovB32(vgpr(self.tmpVgpr), addrCalc.rowInc, "set shift rows"))
-          module.add(VAddU32(vgpr(self.parentWriter.vgprs.storeRemapCoord1), vgpr(self.parentWriter.vgprs.storeRemapCoord1), vgpr(self.tmpVgpr), "shift storeRemap coord1"))
+          module.add(ti.VMovB32(vgpr(self.tmpVgpr), addrCalc.rowInc, "set shift rows"))
+          module.add(ti.VAddU32(vgpr(self.parentWriter.vgprs.storeRemapCoord1), vgpr(self.parentWriter.vgprs.storeRemapCoord1), vgpr(self.tmpVgpr), "shift storeRemap coord1"))
 
     module.add(loadInputCode)
 
@@ -875,11 +876,11 @@ class GlobalWriteBatchWriter:
           for vi in range(self.gwvw):
             for rIdx in range(0, regsPerScalar):
               idx = self.ss.elementSumIdx[elementIdx]*regsPerScalar + regsPerScalar*vi + rIdx - self.parentWriter.states.c.startVgprValu
-              module.add(VMovB32(vgpr("ValuC+%u"%(idx)), vgpr("ValuC+%u"%(idx + self.ss.lsuStartVgprOffset)), "load from "+str(idx + self.ss.lsuStartVgprOffset)+" to "+str(idx) ))
+              module.add(ti.VMovB32(vgpr("ValuC+%u"%(idx)), vgpr("ValuC+%u"%(idx + self.ss.lsuStartVgprOffset)), "load from "+str(idx + self.ss.lsuStartVgprOffset)+" to "+str(idx) ))
       self.ss.lsuStartVgprOffset += len(self.batchElements) * self.gwvw * regsPerScalar
 
       if not self.kernel["MIArchVgpr"]:
-        module.add(SNop(1, "2 wait states required before reading vgpr"))
+        module.add(ti.SNop(1, "2 wait states required before reading vgpr"))
 
     if self.kernel["_GlobalAccumulation"] == "MultipleBufferSingleKernel":
       module.addComment1("store after Acc, "+"GSU: "+str(self.kernel["GlobalSplitU"]))
@@ -918,7 +919,7 @@ class GlobalWriteBatchWriter:
 
     if (self.kernel["_GlobalAccumulation"] == 'MultipleBufferSingleKernel'):
       if self.parentWriter.states.serializedStore:
-        module.add(SNop(0, "1 wait state required when next inst writes vgprs held by previous dwordx4 store inst"))
+        module.add(ti.SNop(0, "1 wait state required when next inst writes vgprs held by previous dwordx4 store inst"))
 
       ########################################################
 
@@ -1022,7 +1023,7 @@ class GlobalWriteBatchWriter:
         self.storesIssued += numNewStores
 
     if self.parentWriter.states.serializedStore:
-      module.add(SNop(0, "1 wait state required when next inst writes vgprs held by previous dwordx4 store inst"))
+      module.add(ti.SNop(0, "1 wait state required when next inst writes vgprs held by previous dwordx4 store inst"))
 
     if self.kernel["_GlobalAccumulation"] == "MultipleBufferSingleKernel":
       module.addselfAsm("//GW end\n") #GSUSYNC
@@ -1052,11 +1053,11 @@ class GlobalWriteBatchWriter:
         if self.kernel["ProblemType"]["ComputeDataType"].isInt32() or \
             self.kernel["ProblemType"]["ComputeDataType"].isSingle(): # covers sgemm/gemm_ex(HHS/HSS/BBS/BSS)
             if self.debugConfig["ForceExpectedValue"]:
-              module.add(VMovB32(vgpr("ValuC+%u"%newSumIdxV), self.debugConfig["ValueCExpectedValue"], "force expected value" ))
+              module.add(ti.VMovB32(vgpr("ValuC+%u"%newSumIdxV), self.debugConfig["ValueCExpectedValue"], "force expected value" ))
             if self.parentWriter.db["ForceVSerial"]:
-              module.add(VMovB32(vgpr("ValuC+%u"%newSumIdxV), vgpr("Serial"), "force expected value to serial" ))
+              module.add(ti.VMovB32(vgpr("ValuC+%u"%newSumIdxV), vgpr("Serial"), "force expected value to serial" ))
             if self.parentWriter.db["CheckValueC"]:
-              module.add(SMovB32(sgpr(self.tmpS01), self.debugConfig["ValueCExpectedValue"], "Move expected value"))
+              module.add(ti.SMovB32(sgpr(self.tmpS01), self.debugConfig["ValueCExpectedValue"], "Move expected value"))
               module.add(self.parentWriter.getCmpAssert(self.parentWriter.asmAssert.eq, vgpr("ValuC+%u"%newSumIdxV), sgpr(self.tmpS01)))
 
     ########################################
@@ -1073,21 +1074,21 @@ class GlobalWriteBatchWriter:
     activationCDataType = self.kernel["ProblemType"]["ActivationComputeDataType"]
 
     if self.kernel["ProblemType"]["DestDataType"].isBFloat16() and self.kernel["ProblemType"]["HighPrecisionAccumulate"]:
-      module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprBf16Mask), "0xffff0000", "mask for pack two bfloat16 element to 32bit" ))
-      module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprFp32Nan), "0x7fff0000", "fp32 Nan" ))
-      module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprBf16Inc), "0x7fff", "rounding bias for bfloat16" ))
+      module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprBf16Mask), "0xffff0000", "mask for pack two bfloat16 element to 32bit" ))
+      module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprFp32Nan), "0x7fff0000", "fp32 Nan" ))
+      module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprBf16Inc), "0x7fff", "rounding bias for bfloat16" ))
     elif self.kernel["ProblemType"]["DestDataType"].isFloat8() and self.kernel["ProblemType"]["HighPrecisionAccumulate"]:
-      module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprFp8NanInf), "0x207", "Nan and +/- inf" ))
+      module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprFp8NanInf), "0x207", "Nan and +/- inf" ))
       if self.parentWriter.states.archCaps["HasFP8_OCP"]:
-        module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprFp8Max), "0x43E00000", "Fp8 Max value 448 as float32" ))
-        module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprFp8Min), "0xc3E00000", "Fp8 Min value -448 as float32" ))
+        module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprFp8Max), "0x43E00000", "Fp8 Max value 448 as float32" ))
+        module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprFp8Min), "0xc3E00000", "Fp8 Min value -448 as float32" ))
       else:
-        module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprFp8Max), "0x43700000", "Fp8 Max value 240 as float32" ))
-        module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprFp8Min), "0xc3700000", "Fp8 Min value -240 as float32" ))
+        module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprFp8Max), "0x43700000", "Fp8 Max value 240 as float32" ))
+        module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprFp8Min), "0xc3700000", "Fp8 Min value -240 as float32" ))
     elif self.kernel["ProblemType"]["DestDataType"].isBFloat8() and self.kernel["ProblemType"]["HighPrecisionAccumulate"]:
-      module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprBF8NanInf), "0x207", "Nan and +/- inf" ))
-      module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprBF8Max), "0x47600000", "BF8 Max value 57344 as float32" ))
-      module.add(VMovB32(vgpr(self.cvtVgprStruct.vgprBF8Min), "0xc7600000", "BF8 Min value -57344 as float32" ))
+      module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprBF8NanInf), "0x207", "Nan and +/- inf" ))
+      module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprBF8Max), "0x47600000", "BF8 Max value 57344 as float32" ))
+      module.add(ti.VMovB32(vgpr(self.cvtVgprStruct.vgprBF8Min), "0xc7600000", "BF8 Min value -57344 as float32" ))
 
     storeCode = Module("GroupLoadStore")
     vmcntTotalIssued = self.loadsBetaIssued + self.loadsEIssued
@@ -1116,8 +1117,8 @@ class GlobalWriteBatchWriter:
             printExit("Use E does not support StoreRemapVectorWidth if GSU == 1.")
             # module.add(addrCalc.incrementToNextRow(self.kernel, "E", self.ss, self.tmpS01, isCompute=True))
           module.add(addrCalc.incrementToNextRow(self.kernel, "D", self.ss, self.tmpS01))
-          module.add(VMovB32(vgpr(self.tmpVgpr), addrCalc.rowInc, "set shift rows"))
-          module.add(VAddU32(vgpr(self.parentWriter.vgprs.storeRemapCoord1), vgpr(self.parentWriter.vgprs.storeRemapCoord1), vgpr(self.tmpVgpr), "shift storeRemap coord1"))
+          module.add(ti.VMovB32(vgpr(self.tmpVgpr), addrCalc.rowInc, "set shift rows"))
+          module.add(ti.VAddU32(vgpr(self.parentWriter.vgprs.storeRemapCoord1), vgpr(self.parentWriter.vgprs.storeRemapCoord1), vgpr(self.tmpVgpr), "shift storeRemap coord1"))
 
       # apply in-bounds exec mask
       if self.edge and not self.kernel["BufferStore"]:
@@ -1145,16 +1146,16 @@ class GlobalWriteBatchWriter:
 
         gwvw = 1 if factorDim else self.gwvw
         if isGlobal:
-          vecModule.add(VCmpGtU32(dst=sgpr("Address%s"%addressStr, self.parentWriter.states.laneSGPRCount), src0=sgpr("Srd%s+2"%addressStr), src1=0, comment=" == 0 ?"))
+          vecModule.add(ti.VCmpGtU32(dst=sgpr("Address%s"%addressStr, self.parentWriter.states.laneSGPRCount), src0=sgpr("Srd%s+2"%addressStr), src1=0, comment=" == 0 ?"))
           for vi2 in range(0, gwvw):
-            vecModule.add(VCndMaskB32(
+            vecModule.add(ti.VCndMaskB32(
               dst=vgpr(dataScaleVec + vi2), \
               src1=vgpr(dataScaleVec + vi2), \
               src0=maskConst, \
               src2=sgpr("Address%s"%addressStr, self.parentWriter.states.laneSGPRCount), \
               comment="1. mul 1 if 0"))
         if factorDim and self.gwvw > 1:
-          vecModule.add(VMovB32(dst=vgpr(dataScaleVec+1), src=vgpr(dataScaleVec), comment="copy data%s to data%s+1"%(addressStr, addressStr)))
+          vecModule.add(ti.VMovB32(dst=vgpr(dataScaleVec+1), src=vgpr(dataScaleVec), comment="copy data%s to data%s+1"%(addressStr, addressStr)))
 
         for vi in range(0, self.gwvw):
           inputScaleVecVgpr = dataScaleVec + (0 if factorDim else vi)
@@ -1163,22 +1164,22 @@ class GlobalWriteBatchWriter:
             vgprIdx = sumIdxV - self.parentWriter.states.c.startVgprValu
             # Generate single f32 code if edge is detected.
             if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
-              vecModule.add(VMulF32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr(inputScaleVecVgpr), src1=vgpr("ValuC+%d"%vgprIdx), comment="*= %sVMul"%addressStr ))
+              vecModule.add(ti.VMulF32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr(inputScaleVecVgpr), src1=vgpr("ValuC+%d"%vgprIdx), comment="*= %sVMul"%addressStr ))
             # Original packed route
             elif vi%2 == 1:
               assert (self.gwvw % 2 == 0)
             else:
-              vecModule.add(VMulPKF32(dst=vgpr("ValuC+%d"%vgprIdx, 2), src0=vgpr(inputScaleVecVgpr, 2), src1=vgpr("ValuC+%d"%vgprIdx, 2), comment="*= %sVMulPK(%d)(%d)"%(addressStr, dataScaleVec,vi)))
+              vecModule.add(ti.VMulPKF32(dst=vgpr("ValuC+%d"%vgprIdx, 2), src0=vgpr(inputScaleVecVgpr, 2), src1=vgpr("ValuC+%d"%vgprIdx, 2), comment="*= %sVMulPK(%d)(%d)"%(addressStr, dataScaleVec,vi)))
           elif self.kernel["ProblemType"]["ComputeDataType"].isInt32():
             vgprIdx = sumIdxV - self.parentWriter.states.c.startVgprValu
             # Generate single i32 code if edge is detected.
             if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
-              vecModule.add(VMulLOU32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr(inputScaleVecVgpr), src1=vgpr("ValuC+%d"%vgprIdx), comment="*= %sVMul"%addressStr ))
+              vecModule.add(ti.VMulLOU32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr(inputScaleVecVgpr), src1=vgpr("ValuC+%d"%vgprIdx), comment="*= %sVMul"%addressStr ))
             elif vi%2 == 1:
               assert (self.gwvw % 2 == 0)
             else:
-              vecModule.add(VMulLOU32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr(inputScaleVecVgpr), src1=vgpr("ValuC+%d"%vgprIdx), comment="*= %sVMulPK(%d)(%d)"%(addressStr, dataScaleAlphaVec,vi)))
-              vecModule.add(VMulLOU32(dst=vgpr("ValuC+%d"%(vgprIdx+1)), src0=vgpr(inputScaleVecVgpr+1), src1=vgpr("ValuC+%d"%(vgprIdx+1)), comment="*= %sVMulPK(%d)(%d)"%(addressStr, dataScaleAlphaVec,vi)))
+              vecModule.add(ti.VMulLOU32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr(inputScaleVecVgpr), src1=vgpr("ValuC+%d"%vgprIdx), comment="*= %sVMulPK(%d)(%d)"%(addressStr, dataScaleAlphaVec,vi)))
+              vecModule.add(ti.VMulLOU32(dst=vgpr("ValuC+%d"%(vgprIdx+1)), src0=vgpr(inputScaleVecVgpr+1), src1=vgpr("ValuC+%d"%(vgprIdx+1)), comment="*= %sVMulPK(%d)(%d)"%(addressStr, dataScaleAlphaVec,vi)))
           else:
             raise RuntimeError("Unsupported %s compute data type %s."%(addressStr, str(self.kernel["ProblemType"]["ComputeDataType"])))
 
@@ -1215,7 +1216,7 @@ class GlobalWriteBatchWriter:
           mergeActFuncCall = False
 
         if self.factorDim and self.gwvw > 1:
-          module.add(VMovB32(dst=vgpr(dataBias+1), src=vgpr(dataBias), comment="copy dataBias to dataBIas+1"))
+          module.add(ti.VMovB32(dst=vgpr(dataBias+1), src=vgpr(dataBias), comment="copy dataBias to dataBIas+1"))
 
         for vi in range(0, self.gwvw):
           inputVgpr = dataBias + + (0 if self.factorDim else vi)
@@ -1225,14 +1226,14 @@ class GlobalWriteBatchWriter:
             vgprDst = (self.activationSetPCStruct.vgprActCopy + vi) if mergeActFuncCall else "ValuC+%d"%vgprIdx
             # Generate single f32 code if edge is detected.
             if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
-              module.add(VAddF32(dst=vgpr(vgprDst), src0=vgpr(inputVgpr), src1=vgpr("ValuC+%d"%vgprIdx), \
+              module.add(ti.VAddF32(dst=vgpr(vgprDst), src0=vgpr(inputVgpr), src1=vgpr("ValuC+%d"%vgprIdx), \
                                  comment="C += bias"))
 
             # Original packed route
             elif vi%2 == 1:
               assert (self.gwvw % 2 == 0)
             else:
-              module.add(VAddPKF32(dst=vgpr(vgprDst, 2), src0=vgpr(inputVgpr, 2), \
+              module.add(ti.VAddPKF32(dst=vgpr(vgprDst, 2), src0=vgpr(inputVgpr, 2), \
                                    src1=vgpr("ValuC+%d"%vgprIdx, 2), comment="C += bias"))
           else:
             raise RuntimeError("Unsupported bias compute data type %s."%str(self.kernel["ProblemType"]["ComputeDataType"]))
@@ -1266,7 +1267,7 @@ class GlobalWriteBatchWriter:
 
         module.add(self.parentWriter.addStore(self.kernel, self.ss, 'E', addrCalc, vgprDst, self.tmpS01, self.edge, comment="store E"))
 
-      SaturateTypeInt8 = SaturateCastType.NORMAL
+      SaturateTypeInt8 = exti.SaturateCastType.NORMAL
 
       gradientCvtModule = Module("gradientCvtModule")
       if (self.kernel["ProblemType"]["UseE"] and self.kernel["ProblemType"]["Gradient"]) and (self.kernel["GlobalSplitU"] == 1):
@@ -1277,13 +1278,13 @@ class GlobalWriteBatchWriter:
               dataEV  = dataE + vi
               dataEV2 = dataE + vi // 2
               selectbit = SelectBit.WORD_0 if (self.gwvw != 1 and vi % 2 == 0) or (self.gwvw == 1 and elementIdx % 2 == 0) else SelectBit.WORD_1
-              gradientCvtModule.add(VCvtF16toF32(dst=vgpr(dataEV), src=vgpr(dataEV2+loadOffset), sdwa=SDWAModifiers(src0_sel=selectbit), comment="gwvw %d, elementIdx %d"%(self.gwvw, elementIdx)))
+              gradientCvtModule.add(ti.VCvtF16toF32(dst=vgpr(dataEV), src=vgpr(dataEV2+loadOffset), sdwa=SDWAModifiers(src0_sel=selectbit), comment="gwvw %d, elementIdx %d"%(self.gwvw, elementIdx)))
           elif activationCDataType.isSingle() and self.kernel["ProblemType"]["DataTypeE"].isBFloat16():
             for vi in range(0, self.gwvw):
               dataEV  = dataE + vi
               dataEV2 = dataE + vi // 2
               selectWord = 0 if (self.gwvw != 1 and vi % 2 == 0) or (self.gwvw == 1 and elementIdx % 2 == 0) else 1
-              module.add(VCvtBF16toFP32(dst=(dataEV), src=(dataEV2+loadOffset), vgprMask=(self.cvtVgprStruct.vgprBf16Mask), vi=(selectWord), additionalCmts="gwvw %d, elementIdx %d"%(self.gwvw, elementIdx)))
+              module.add(exti.VCvtBF16toFP32(dst=(dataEV), src=(dataEV2+loadOffset), vgprMask=(self.cvtVgprStruct.vgprBf16Mask), vi=(selectWord), additionalCmts="gwvw %d, elementIdx %d"%(self.gwvw, elementIdx)))
           else:
             printExit("[Gradient input] Unsupported conversion.")
 
@@ -1309,7 +1310,7 @@ class GlobalWriteBatchWriter:
         if (not mergeActFuncCall) and (not isActivationInsertAfter):
           activationModule.appendModule (copyData(activationCDataType, gradientInput, self.gwvw, \
             self.activationSetPCStruct.vgprActCopy))
-        activationModule.add(SSwapPCB64(dst=sgpr(self.activationSetPCStruct.sgprOffsetBack, 2), \
+        activationModule.add(ti.SSwapPCB64(dst=sgpr(self.activationSetPCStruct.sgprOffsetBack, 2), \
           src=sgpr(self.activationSetPCStruct.sgprOffsetActivation, 2)))
         activationModule.appendModule (copyData(activationCDataType, gradientInput, self.gwvw, \
           self.activationSetPCStruct.vgprActCopy, 1))
@@ -1321,7 +1322,7 @@ class GlobalWriteBatchWriter:
         satInt8 = False
         if self.kernel["ProblemType"]["DestDataType"].isInt8():
           if (self.activationTypeStr == 'abs') or (self.activationTypeStr == 'relu'):
-            SaturateTypeInt8 = SaturateCastType.DO_NOTHING
+            SaturateTypeInt8 = exti.SaturateCastType.DO_NOTHING
             satInt8 = True
         activationModule = self.parentWriter.getActivationActivationComputeType(self.kernel, self.activation, \
           self.activationTypeStr, self.gwvw, gradientInput, gradientInput, self.tmpVgpr, self.tmpSgpr, satInt8, enableValuC)
@@ -1336,12 +1337,12 @@ class GlobalWriteBatchWriter:
             vgprIdx = sumIdxV - self.parentWriter.states.c.startVgprValu
             # Generate single f32 code if edge is detected.
             if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
-              activationModule.add(VMulF32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr("ValuC+%d"%vgprIdx), src1=vgpr(dataEV), comment="C *= GradAct"))
+              activationModule.add(ti.VMulF32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr("ValuC+%d"%vgprIdx), src1=vgpr(dataEV), comment="C *= GradAct"))
             # Original packed route
             elif vi%2 == 1:
               assert (self.gwvw % 2 == 0)
             else:
-              activationModule.add(VMulPKF32(dst=vgpr("ValuC+%d"%vgprIdx, 2), src0=vgpr("ValuC+%d"%vgprIdx, 2), src1=vgpr(dataEV, 2), comment="C *= GradAct"))
+              activationModule.add(ti.VMulPKF32(dst=vgpr("ValuC+%d"%vgprIdx, 2), src0=vgpr("ValuC+%d"%vgprIdx, 2), src1=vgpr(dataEV, 2), comment="C *= GradAct"))
           else:
             assert 0, "Unsupported gradient type"
 
@@ -1355,17 +1356,17 @@ class GlobalWriteBatchWriter:
             if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
               if self.kernel["ProblemType"]["OutputAmaxD"]:
                 if self.edge:
-                  activationModule.add(VCmpEQU32(dst="vcc", src0="BufferOOB", src1=(vgpr(addrCalc.addrDVgpr)), comment =""))
-                  activationModule.add(VCndMaskB32(dst=vgpr("AmaxOutB"), src0=vgpr("ValuC+%d"%vgprIdx), src1=hex(0), src2="vcc", comment="Check If OOB, put zero if OOB"))
-                  activationModule.add(VMaxF32(dst=vgpr("AmaxOut"), src0=vgpr("AmaxOut"), src1=SrcAbs(vgpr("AmaxOutB")), comment="absmax"))
+                  activationModule.add(ti.VCmpEQU32(dst="vcc", src0="BufferOOB", src1=(vgpr(addrCalc.addrDVgpr)), comment =""))
+                  activationModule.add(ti.VCndMaskB32(dst=vgpr("AmaxOutB"), src0=vgpr("ValuC+%d"%vgprIdx), src1=hex(0), src2="vcc", comment="Check If OOB, put zero if OOB"))
+                  activationModule.add(ti.VMaxF32(dst=vgpr("AmaxOut"), src0=vgpr("AmaxOut"), src1=ti.SrcAbs(vgpr("AmaxOutB")), comment="absmax"))
                 else:
-                  activationModule.add(VMaxF32(dst=vgpr("AmaxOut"), src0=vgpr("AmaxOut"), src1=SrcAbs(vgpr("ValuC+%d"%vgprIdx)), comment="absmax"))
-              activationModule.add(VMulF32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr("ValuC+%d"%vgprIdx), src1=sgpr("ScaleD"), comment="result *= ScaleD"))
+                  activationModule.add(ti.VMaxF32(dst=vgpr("AmaxOut"), src0=vgpr("AmaxOut"), src1=ti.SrcAbs(vgpr("ValuC+%d"%vgprIdx)), comment="absmax"))
+              activationModule.add(ti.VMulF32(dst=vgpr("ValuC+%d"%vgprIdx), src0=vgpr("ValuC+%d"%vgprIdx), src1=sgpr("ScaleD"), comment="result *= ScaleD"))
             # Original packed route
             elif vi%2 == 1:
               assert (self.gwvw % 2 == 0)
             else:
-              activationModule.add(VMulPKF32(dst=vgpr("ValuC+%d"%vgprIdx, 2), src0=vgpr("ValuC+%d"%vgprIdx, 2), src1=sgpr("ScaleD", 2), comment="result *= ScaleD"))
+              activationModule.add(ti.VMulPKF32(dst=vgpr("ValuC+%d"%vgprIdx, 2), src0=vgpr("ValuC+%d"%vgprIdx, 2), src1=sgpr("ScaleD", 2), comment="result *= ScaleD"))
           else:
             assert 0, "Unsupported scaleD type"
 
@@ -1407,7 +1408,7 @@ class GlobalWriteBatchWriter:
             formatVgpr = formatting(sumIdxV, "ValuC+", self.parentWriter.states.c.startVgprValu)
             d = self.ss.elementSumIdx[elementIdx] + vi//2
             dVgpr = formatting(d, "ValuC+", self.parentWriter.states.c.startVgprValu)
-            packModule.add(VPackF16toB32(dst=vgpr(dVgpr), src0=vgpr(formatting(sumIdxV-1, "ValuC+", self.parentWriter.states.c.startVgprValu)), src1=vgpr(formatVgpr), \
+            packModule.add(ti.VPackF16toB32(dst=vgpr(dVgpr), src0=vgpr(formatting(sumIdxV-1, "ValuC+", self.parentWriter.states.c.startVgprValu)), src1=vgpr(formatVgpr), \
                           comment="Pack with neighbor"))
 
       biasReductionModule = Module("biasReductionModule")
@@ -1481,7 +1482,7 @@ class GlobalWriteBatchWriter:
       useBuffer = self.kernel["BufferStore"]
       # Note - CheckStoreC won't work for EDGE store cases since they load 0 for OOB, would need more sophisticated check
       # Note - TODO- CheckStoreC also won't work for StoreRemap
-      module.add(SWaitCnt(vmcnt=0, vscnt=0, comment="CheckStoreC, wait for stores to complete"))
+      module.add(ti.SWaitCnt(vmcnt=0, vscnt=0, comment="CheckStoreC, wait for stores to complete"))
       for elementIdx in range(0, len(self.batchElements)):
         addr = self.ss.elementAddr[elementIdx].addrDVgpr
         sumIdx = self.ss.elementSumIdx[elementIdx]
@@ -1510,9 +1511,9 @@ class GlobalWriteBatchWriter:
         elif self.kernel["ProblemType"]["DestDataType"].isDoubleComplex():
           module.add(self.parentWriter.chooseGlobalRead(useBuffer, bps, sumIdx*4, \
                                 addr0, addr1, soffset=0, offset=0))
-      module.add(SWaitCnt(vmcnt=0, vscnt=0, comment="CheckStoreC, wait for stores to complete"))
+      module.add(ti.SWaitCnt(vmcnt=0, vscnt=0, comment="CheckStoreC, wait for stores to complete"))
       # Add checks for expected values:
-      module.add(SMovB32(sgpr(self.tmpS01), self.parentWriter.db["CheckStoreC"], "expected value"))
+      module.add(ti.SMovB32(sgpr(self.tmpS01), self.parentWriter.db["CheckStoreC"], "expected value"))
       for elementIdx in range(0, len(self.batchElements)):
         sumIdx = self.ss.elementSumIdx[elementIdx]
         # Need to fix for other types:
@@ -1527,9 +1528,9 @@ class GlobalWriteBatchWriter:
       module.add(self.getEdgeMovInstType()(EXEC(), -1, "full mask -> exec"))
 
     if self.parentWriter.db["ConservativeWaitCnt"] & 0x40:
-      module.add(SBarrier("debug"))
-      module.add(SWaitCnt(vmcnt=0, vscnt=0, comment="ConservativeWaitCnt"))
-      module.add(SBarrier("debug"))
+      module.add(ti.SBarrier("debug"))
+      module.add(ti.SWaitCnt(vmcnt=0, vscnt=0, comment="ConservativeWaitCnt"))
+      module.add(ti.SBarrier("debug"))
 
   def _emitAtomicAdd(self, module: Module):
     ########################################
@@ -1548,11 +1549,11 @@ class GlobalWriteBatchWriter:
         newSumIdxV = sumIdxV - self.parentWriter.states.c.startVgprValu
         if self.parentWriter.do["GlobalWrite"]:
           if self.kernel["BufferStore"]:
-            module.add(BufferAtomicAddF32(vgpr("ValuC+%u"%newSumIdxV), \
+            module.add(ti.BufferAtomicAddF32(vgpr("ValuC+%u"%newSumIdxV), \
                          vgpr(addrCalc.addrDVgpr,1), \
                          sgpr("SrdD", 4), \
                          0,
-                         MUBUFModifiers(offen=True, offset12=addrCalc.globalOffset),
+                         ti.MUBUFModifiers(offen=True, offset12=addrCalc.globalOffset),
                          "attempt write avi=%u" % (avi)))
           else:
             pass # TODO:
@@ -1579,7 +1580,7 @@ class GlobalWriteBatchWriter:
     ########################################
     # wait for batched load
     # TODO - we are always atomic here?
-    module.add(SWaitCnt(vmcnt=0, vscnt=0, comment="wait C (atomic)"))
+    module.add(ti.SWaitCnt(vmcnt=0, vscnt=0, comment="wait C (atomic)"))
     ########################################
     # first attempt write
     module.addComment1("issue first atomic writes")
@@ -1615,7 +1616,7 @@ class GlobalWriteBatchWriter:
           if self.kernel["BufferStore"]:
             # use cmpswap_x2 for DGEMM in CAS loop
             if self.kernel["ProblemType"]["DestDataType"].isDouble():
-              module.add(BufferAtomicCmpswapB64(vgpr(dataV,4), \
+              module.add(ti.BufferAtomicCmpswapB64(vgpr(dataV,4), \
                               vgpr(addrCalc.addrDVgpr,1), \
                               sgpr("SrdD", 4),  \
                               0,
@@ -1623,25 +1624,25 @@ class GlobalWriteBatchWriter:
                               "attempt write avi=%u"%(avi)))
             else:
             # use cmpswap for SGEMM in CAS loop
-              module.add(BufferAtomicCmpswapB32(vgpr(dataV,2), \
+              module.add(ti.BufferAtomicCmpswapB32(vgpr(dataV,2), \
                            vgpr(addrCalc.addrDVgpr,1), \
                            sgpr("SrdD", 4), \
                            0, \
                            MUBUFModifiers(offen=True, offset12=addrCalc.globalOffset, glc=True), \
                            "attempt write avi=%u"%(avi)))
           else:
-            module.add(FlatAtomicCmpswapB32(vgpr(atomicDestVgpr), \
+            module.add(ti.FlatAtomicCmpswapB32(vgpr(atomicDestVgpr), \
                                             vgpr(addrCalc.addrDVgpr,2), \
                                             vgpr(dataV,2),
                                             FLATModifiers(glc=True),
                                             "attempt write"))
         else:
             # Fake successful CAS swap
-            module.add(VMovB32(vgpr(atomicDestVgpr), vgpr(dataV+1), "Fake successful CAS" ))
+            module.add(ti.VMovB32(vgpr(atomicDestVgpr), vgpr(dataV+1), "Fake successful CAS" ))
 
     ########################################
     # wait for first attempt write
-    module.add(SWaitCnt(vmcnt=0, vscnt=0, comment="wait for atomic writes"))
+    module.add(ti.SWaitCnt(vmcnt=0, vscnt=0, comment="wait for atomic writes"))
     ########################################
     # check first attempt
     module.addComment1("check success of writes, update masks")
@@ -1659,17 +1660,17 @@ class GlobalWriteBatchWriter:
           if avi == 0:
             # use u64 for DGEMM
             if self.kernel["ProblemType"]["DestDataType"].isDouble():
-              module.add(VCmpNeU64(sgpr(self.tmpS01, self.laneSGPRC), vgpr(atomicDestVgpr,2), \
+              module.add(ti.VCmpNeU64(sgpr(self.tmpS01, self.laneSGPRC), vgpr(atomicDestVgpr,2), \
                   vgpr(dataV+2,2), comment="c read during atomic == c read during prior load (avi=%u, first)"%avi))
             else:
-              module.add(VCmpNeU32(sgpr(self.tmpS01, self.laneSGPRC), vgpr(atomicDestVgpr), \
+              module.add(ti.VCmpNeU32(sgpr(self.tmpS01, self.laneSGPRC), vgpr(atomicDestVgpr), \
                   vgpr(dataV+1), comment="c read during atomic == c read during prior load (avi=%u, first)"%avi))
           else:
             if self.kernel["ProblemType"]["DestDataType"].isDouble():
-              module.add(VCmpNeU64(sgpr(self.tmpS23, self.laneSGPRC), vgpr(atomicDestVgpr,2), \
+              module.add(ti.VCmpNeU64(sgpr(self.tmpS23, self.laneSGPRC), vgpr(atomicDestVgpr,2), \
                   vgpr(dataV+2,2), comment="c read during atomic != c read during prior load"))
             else:
-              module.add(VCmpNeU32(sgpr(self.tmpS23, self.laneSGPRC), vgpr(atomicDestVgpr), \
+              module.add(ti.VCmpNeU32(sgpr(self.tmpS23, self.laneSGPRC), vgpr(atomicDestVgpr), \
                   vgpr(dataV+1), comment="c read during atomic == c read during prior load (avi=%u)"%avi))
             module.add(self.getEdgeOrInstType()(sgpr(self.tmpS01, self.laneSGPRC), \
                   sgpr(self.tmpS01, self.laneSGPRC), sgpr(self.tmpS23, self.laneSGPRC), "combine with tmp mask"))
@@ -1681,10 +1682,10 @@ class GlobalWriteBatchWriter:
           dataV = self.ss.elementData[elementIdx] + int(avi*self.ss.cfg.numVgprsPerDataPerVI)
           atomicDestVgpr = dataV if self.kernel["BufferStore"] else dataV+2
           if self.kernel["ProblemType"]["DestDataType"].isDouble():
-            module.add(VCmpNeU64(sgpr(mask, self.laneSGPRC), vgpr(atomicDestVgpr,2), \
+            module.add(ti.VCmpNeU64(sgpr(mask, self.laneSGPRC), vgpr(atomicDestVgpr,2), \
                 vgpr(dataV+2,2), comment="c read during atomic != c read during prior load"))
           else:
-            module.add(VCmpNeU32(sgpr(mask, self.laneSGPRC), vgpr(atomicDestVgpr), \
+            module.add(ti.VCmpNeU32(sgpr(mask, self.laneSGPRC), vgpr(atomicDestVgpr), \
                 vgpr(dataV+1), comment="c read during atomic != c read during prior load"))
 
     # or masks together to check early exit
@@ -1694,7 +1695,7 @@ class GlobalWriteBatchWriter:
       mask = self.ss.elementMask[elementIdx]
       module.add(self.getEdgeOrInstType()(sgpr(self.tmpS01, self.laneSGPRC), sgpr(mask, self.laneSGPRC), sgpr(self.tmpS01, self.laneSGPRC), "or to add threads"))
     module.add(self.getSOrSaveExecType()(sgpr(self.tmpS23,self.laneSGPRC), sgpr(self.tmpS01,self.laneSGPRC), "apply combined mask"))
-    module.add(SCBranchExecZ(labelAfterAtomicLoop.getLabelName(), "if exec is zero skip loop"))
+    module.add(ti.SCBranchExecZ(labelAfterAtomicLoop.getLabelName(), "if exec is zero skip loop"))
 
     # begin atomic loop
     module.addComment1("atomic CAS loop")
@@ -1723,10 +1724,10 @@ class GlobalWriteBatchWriter:
         module.add(self.getEdgeMovInstType()(EXEC(), sgpr(mask,self.laneSGPRC), "must try again"))
         if self.kernel["ProblemType"]["DestDataType"].isDouble():
           #64-bit C val move by 2 32-bit instructions
-          module.add(VMovB32(vgpr(dataV+2), vgpr(atomicDestVgpr), "dataV+2 = tmp (new original C)" ))
-          module.add(VMovB32(vgpr(dataV+3), vgpr(atomicDestVgpr+1), "dataV+3 = tmp (new original C)" ))
+          module.add(ti.VMovB32(vgpr(dataV+2), vgpr(atomicDestVgpr), "dataV+2 = tmp (new original C)" ))
+          module.add(ti.VMovB32(vgpr(dataV+3), vgpr(atomicDestVgpr+1), "dataV+3 = tmp (new original C)" ))
         else:
-          module.add(VMovB32(vgpr(dataV+1), vgpr(atomicDestVgpr), "dataV+1 = tmp (new original C)" ))
+          module.add(ti.VMovB32(vgpr(dataV+1), vgpr(atomicDestVgpr), "dataV+1 = tmp (new original C)" ))
         module.add(self._chooseAddForAtomic(self.kernel, \
                         vgpr(dataV+0,vgprCnt), vgpr(dataV+1*vgprIdx,vgprCnt), vgpr("ValuC+%u"%newSumIdxV,vgprCnt), \
                         "newC = rC + originalC"))
@@ -1735,14 +1736,14 @@ class GlobalWriteBatchWriter:
             # Using no-ret version here?
             # cmpswap_x2 for DGEMM
             if self.kernel["ProblemType"]["DestDataType"].isDouble():
-              module.add(BufferAtomicCmpswapB64(vgpr(dataV,4), \
+              module.add(ti.BufferAtomicCmpswapB64(vgpr(dataV,4), \
                           vgpr(addr,1), \
                           sgpr("SrdD", 4), \
                           0,
                           MUBUFModifiers(offen=True, offset12=addrCalc.globalOffset, glc=True,),
                           "try again"))
             else:
-              module.add(BufferAtomicCmpswapB32(
+              module.add(ti.BufferAtomicCmpswapB32(
                           vgpr(dataV,2), \
                           vgpr(addr,1), \
                           sgpr("SrdD", 4), \
@@ -1750,14 +1751,14 @@ class GlobalWriteBatchWriter:
                           MUBUFModifiers(offen=True, offset12=addrCalc.globalOffset, glc=True),
                           "try again"))
           else:
-            module.add(FlatAtomicCmpswapB32(vgpr(atomicDestVgpr), \
+            module.add(ti.FlatAtomicCmpswapB32(vgpr(atomicDestVgpr), \
                                             vgpr(addr,2), \
                                             vgpr(dataV,2), \
                                             FLATModifiers(glc=True), \
                                             "try again"))
 
     # wait for batched write
-    module.add(SWaitCnt(vmcnt=0, vscnt=0, comment="wait for atomic writes"))
+    module.add(ti.SWaitCnt(vmcnt=0, vscnt=0, comment="wait for atomic writes"))
     # check batched write success
     module.addComment1("apply masks and check for success")
     for elementIdx in range(0, len(self.batchElements)):
@@ -1772,10 +1773,10 @@ class GlobalWriteBatchWriter:
 
         # compare success
         if self.kernel["ProblemType"]["DestDataType"].isDouble():
-          module.add(VCmpNeU64(sgpr(self.tmpS01,self.laneSGPRC), vgpr(data+2,2), vgpr(atomicDestVgpr,2), \
+          module.add(ti.VCmpNeU64(sgpr(self.tmpS01,self.laneSGPRC), vgpr(data+2,2), vgpr(atomicDestVgpr,2), \
               comment="c read during atomic != c read during prior load"))
         else:
-          module.add(VCmpNeU32(sgpr(self.tmpS01,self.laneSGPRC), vgpr(data+1), vgpr(atomicDestVgpr), \
+          module.add(ti.VCmpNeU32(sgpr(self.tmpS01,self.laneSGPRC), vgpr(data+1), vgpr(atomicDestVgpr), \
               comment="c read during atomic == c read during prior load"))
         # update element mask
         module.add(self.getEdgeAndInstType()(sgpr(mask,self.laneSGPRC), sgpr(self.tmpS01,self.laneSGPRC), sgpr(mask,self.laneSGPRC), "inBounds & must try again"))
@@ -1789,7 +1790,7 @@ class GlobalWriteBatchWriter:
 
     # apply combined masks and exit
     module.add(self.getSOrSaveExecType()(sgpr(self.tmpS23, self.laneSGPRC), sgpr(self.tmpS01,self.laneSGPRC), "apply combined mask"))
-    module.add(SCBranchExecNZ(label.getLabelName(), "try again if not complete"))
+    module.add(ti.SCBranchExecNZ(label.getLabelName(), "try again if not complete"))
     module.add(labelAfterAtomicLoop)
     module.add(self.getEdgeMovInstType()(EXEC(), -1, "full mask -> exec"))
 
@@ -1805,8 +1806,8 @@ class GlobalWriteBatchWriter:
     return True
 
   def _storeSyncOpt(self, module: Module):
-    module.add(SSleep(self.kernel["StoreSyncOpt"] - 1, "optimization: sync and wait"))
-    module.add(SBarrier())
+    module.add(ti.SSleep(self.kernel["StoreSyncOpt"] - 1, "optimization: sync and wait"))
+    module.add(ti.SBarrier())
 
   def _applyAlpha(self, kernel, gwvw, elementSumIdx, elementIdx, tmpS01):
     module = Module("applyAlpha")
@@ -1822,18 +1823,18 @@ class GlobalWriteBatchWriter:
           # (h,h,h,h,h,h), internal alpha is f16 (2-16bits)
           if sumIdxV%2:
             newSumIdx = sumIdxV // 2 - self.parentWriter.states.c.startVgprValu
-            module.add(VMulPKF16(dst=vgpr("ValuC+%u"%(newSumIdx)), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%(newSumIdx)), comment="*= alpha sumIdx=%u vi=%u"%(elementSumIdx[elementIdx], vi)))
+            module.add(ti.VMulPKF16(dst=vgpr("ValuC+%u"%(newSumIdx)), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%(newSumIdx)), comment="*= alpha sumIdx=%u vi=%u"%(elementSumIdx[elementIdx], vi)))
 
         # Int8 (TODO- Int8x4 not checked, but should be OK)
         elif kernel["ProblemType"]["ComputeDataType"].isInt32():
           newSumIdx = sumIdxV - self.parentWriter.states.c.startVgprValu
           # below assume we use v_mul_lo_u32. Could also use v_mul_i32_i24.
-          # module.add(VMulI32I24(dst=vgpr("ValuC+%u"%newSumIdx), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%newSumIdx), comment="*= alpha" )_
-          module.add(VMulLOU32(dst=vgpr("ValuC+%u"%newSumIdx), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%newSumIdx), comment="*= alpha" ))
+          # module.add(ti.VMulI32I24(dst=vgpr("ValuC+%u"%newSumIdx), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%newSumIdx), comment="*= alpha" )_
+          module.add(ti.VMulLOU32(dst=vgpr("ValuC+%u"%newSumIdx), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%newSumIdx), comment="*= alpha" ))
           if self.parentWriter.db["ForceExpectedValue"]:
-            module.add(VMovB32(dst=vgpr("ValuC+%u"%newSumIdx), src=self.parentWriter.db["ValueCExpectedValue"], comment="force expected value" ))
+            module.add(ti.VMovB32(dst=vgpr("ValuC+%u"%newSumIdx), src=self.parentWriter.db["ValueCExpectedValue"], comment="force expected value" ))
           if self.parentWriter.db["CheckValueC"]:
-            module.add(SMovB32(dst=sgpr(tmpS01), src=self.parentWriter.db["ValueCExpectedValue"], comment="Move expected value"))
+            module.add(ti.SMovB32(dst=sgpr(tmpS01), src=self.parentWriter.db["ValueCExpectedValue"], comment="Move expected value"))
             module.add(self.parentWriter.getCmpAssert(self.parentWriter.asmAssert.eq, vgpr("ValuC+%u"%newSumIdx), sgpr(tmpS01)))
 
         # sgemm, HPA-bfgemm(b,b,b,b,s,s), and HPA-hgemm(h,h,h,h,s,s)
@@ -1841,32 +1842,32 @@ class GlobalWriteBatchWriter:
         elif kernel["ProblemType"]["ComputeDataType"].isSingle() or (kernel["ProblemType"]["ComputeDataType"].isHalf() and kernel["ProblemType"]["HighPrecisionAccumulate"]):
 
           if kernel["ProblemType"]["DataType"].isInt8() and kernel["ProblemType"]["HighPrecisionAccumulate"]:
-            module.add(VCvtI32toF32(dst=vgpr("ValuC+%u"%sumIdxV), src=vgpr("ValuC+%u"%sumIdxV), comment="convert to fp32" ))
+            module.add(ti.VCvtI32toF32(dst=vgpr("ValuC+%u"%sumIdxV), src=vgpr("ValuC+%u"%sumIdxV), comment="convert to fp32" ))
 
           newSumIdx = sumIdxV - self.parentWriter.states.c.startVgprValu
-          module.add(VMulF32(dst=vgpr("ValuC+%u"%newSumIdx), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%newSumIdx), comment="*= alpha" ))
+          module.add(ti.VMulF32(dst=vgpr("ValuC+%u"%newSumIdx), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%newSumIdx), comment="*= alpha" ))
           if self.parentWriter.db["ForceExpectedValue"]:
-            module.add(VMovB32(dst=vgpr("ValuC+%u"%newSumIdx), src=self.parentWriter.db["ValueCExpectedValue"], comment="force expected value" ))
+            module.add(ti.VMovB32(dst=vgpr("ValuC+%u"%newSumIdx), src=self.parentWriter.db["ValueCExpectedValue"], comment="force expected value" ))
           if self.parentWriter.db["ForceVSerial"]:
-            module.add(VMovB32(dst=vgpr("ValuC+%u"%newSumIdx), src=vgpr("Serial"), comment="force expected value to serial" ))
+            module.add(ti.VMovB32(dst=vgpr("ValuC+%u"%newSumIdx), src=vgpr("Serial"), comment="force expected value to serial" ))
           if self.parentWriter.db["CheckValueC"]:
-            module.add(SMovB32(dst=sgpr(tmpS01), src=self.parentWriter.db["ValueCExpectedValue"], comment="Move expected value"))
+            module.add(ti.SMovB32(dst=sgpr(tmpS01), src=self.parentWriter.db["ValueCExpectedValue"], comment="Move expected value"))
             module.add(self.parentWriter.getCmpAssert(self.parentWriter.asmAssert.eq, vgpr("ValuC+%u"%newSumIdx), sgpr(tmpS01)))
 
         # dgemm
         elif kernel["ProblemType"]["ComputeDataType"].isDouble():
           newSumIdx = sumIdxV * 2 - self.parentWriter.states.c.startVgprValu
-          module.add(VMulF64(dst=vgpr("ValuC+%u"%(newSumIdx),2), src0=sgpr("Alpha",2), src1=vgpr("ValuC+%u"%(newSumIdx),2), comment="*= alpha"))
+          module.add(ti.VMulF64(dst=vgpr("ValuC+%u"%(newSumIdx),2), src0=sgpr("Alpha",2), src1=vgpr("ValuC+%u"%(newSumIdx),2), comment="*= alpha"))
 
         # single precision complex
         elif kernel["ProblemType"]["ComputeDataType"].isSingleComplex():
           newSumIdx = sumIdxV * 2 - self.parentWriter.states.c.startVgprValu
           tmpVgpr = self.parentWriter.vgprPool.checkOut(1)
-          module.add(VMovB32(dst=vgpr(tmpVgpr), src=vgpr("ValuC+%u"%(newSumIdx)), comment="store Cr"))
-          module.add(VMulF32(dst=vgpr("ValuC+%u"%(newSumIdx)), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%(newSumIdx)), comment="*= alpha ( Cr = Ar * Cr)"))
-          module.add(VMacF32(dst=vgpr("ValuC+%u"%(newSumIdx)), src0=(sgpr("Alpha+1").getMinus()), src1=vgpr("ValuC+%u"%(newSumIdx+1)), comment="*= alpha ( Cr += -Ai * Ci )"))
-          module.add(VMulF32(dst=vgpr("ValuC+%u"%(newSumIdx+1)), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%(newSumIdx+1)), comment="*= alpha ( Ci = Ar * Ci)"))
-          module.add(VMacF32(dst=vgpr("ValuC+%u"%(newSumIdx+1)), src0=sgpr("Alpha+1"), src1=vgpr(tmpVgpr), comment="*= alpha ( Ci += Ai * Cr_backup )"))
+          module.add(ti.VMovB32(dst=vgpr(tmpVgpr), src=vgpr("ValuC+%u"%(newSumIdx)), comment="store Cr"))
+          module.add(ti.VMulF32(dst=vgpr("ValuC+%u"%(newSumIdx)), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%(newSumIdx)), comment="*= alpha ( Cr = Ar * Cr)"))
+          module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%(newSumIdx)), src0=(sgpr("Alpha+1").getMinus()), src1=vgpr("ValuC+%u"%(newSumIdx+1)), comment="*= alpha ( Cr += -Ai * Ci )"))
+          module.add(ti.VMulF32(dst=vgpr("ValuC+%u"%(newSumIdx+1)), src0=sgpr("Alpha"), src1=vgpr("ValuC+%u"%(newSumIdx+1)), comment="*= alpha ( Ci = Ar * Ci)"))
+          module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%(newSumIdx+1)), src0=sgpr("Alpha+1"), src1=vgpr(tmpVgpr), comment="*= alpha ( Ci += Ai * Cr_backup )"))
           self.parentWriter.vgprPool.checkIn(tmpVgpr)
 
         # double precision complex
@@ -1875,13 +1876,13 @@ class GlobalWriteBatchWriter:
           vtmp1 = self.parentWriter.vgprPool.checkOutAligned(2, 2)
           vtmp2 = self.parentWriter.vgprPool.checkOutAligned(2, 2)
           # tmp1 = a.real * b.real
-          module.add(VMulF64(dst=vgpr(vtmp1,2), src0=sgpr("Alpha+0",2), src1=vgpr("ValuC+%u"%(newSumIdx+0),2)))
+          module.add(ti.VMulF64(dst=vgpr(vtmp1,2), src0=sgpr("Alpha+0",2), src1=vgpr("ValuC+%u"%(newSumIdx+0),2)))
           # tmp2 = a.imag * b.real
-          module.add(VMulF64(dst=vgpr(vtmp2,2), src0=sgpr("Alpha+2",2), src1=vgpr("ValuC+%u"%(newSumIdx+0),2)))
+          module.add(ti.VMulF64(dst=vgpr(vtmp2,2), src0=sgpr("Alpha+2",2), src1=vgpr("ValuC+%u"%(newSumIdx+0),2)))
           # c.real = a.real * b.real - a.imag * b.imag = tmp1 - a.imag * b.imag
-          module.add(VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdx+0),2), src0=sgpr("Alpha+2",2), src1=vgpr("ValuC+%u"%(newSumIdx+2),2), src2=vgpr(vtmp1,2)))
+          module.add(ti.VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdx+0),2), src0=sgpr("Alpha+2",2), src1=vgpr("ValuC+%u"%(newSumIdx+2),2), src2=vgpr(vtmp1,2)))
           # c.imag = a.real * b.imag + a.imag * b.real = a.real * b.imag + tmp2
-          module.add(VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdx+2),2), src0=sgpr("Alpha+0",2), src1=vgpr("ValuC+%u"%(newSumIdx+2),2), src2=vgpr(vtmp2,2)))
+          module.add(ti.VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdx+2),2), src0=sgpr("Alpha+0",2), src1=vgpr("ValuC+%u"%(newSumIdx+2),2), src2=vgpr(vtmp2,2)))
           self.parentWriter.vgprPool.checkIn(vtmp1)
           self.parentWriter.vgprPool.checkIn(vtmp2)
     return module
@@ -1896,21 +1897,21 @@ class GlobalWriteBatchWriter:
           if self.parentWriter.states.asmCaps["HasWMMA_V1"] and kernel["EnableMatrixInstruction"]:
             dataV = ss.elementData[elementIdx] + int(vi / 2 * ss.cfg.numVgprsPerDataPerVI)
             if (vi % 2) == 0:
-              module.add(VMulPKF16(dst=vgpr(dataV), src0=sgpr("Beta"), src1=vgpr(dataV+0), \
+              module.add(ti.VMulPKF16(dst=vgpr(dataV), src0=sgpr("Beta"), src1=vgpr(dataV+0), \
                     comment="%s = C*beta ei=%u vi=%u"%(vgpr(dataV),elementIdx, vi)))
             else:
-              module.add(VLShiftRightB32(dst=vgpr(dataV), shiftHex=16, src=vgpr(dataV), \
+              module.add(ti.VLShiftRightB32(dst=vgpr(dataV), shiftHex=16, src=vgpr(dataV), \
                     comment="shift 16bit to get next half of packed ValueC"))
             # dataV+0 = new c = old c*beta + rC
-            module.add(VAddPKF16(dst=vgpr("ValuC+%u"%(sumIdxV)), src0=vgpr(dataV), src1=vgpr("ValuC+%u"%(sumIdxV)), \
+            module.add(ti.VAddPKF16(dst=vgpr("ValuC+%u"%(sumIdxV)), src0=vgpr(dataV), src1=vgpr("ValuC+%u"%(sumIdxV)), \
                 comment="sum*alpha + C*beta"))
           elif sumIdxV%2==0 or (not ss.cfg.halfDataRegPerVI and gwvw==1):
             newSumIdxV = sumIdxV // 2 - self.parentWriter.states.c.startVgprValu
             # dataV+0 = new c = old c*beta
-            module.add(VMulPKF16(dst=vgpr(dataV), src0=sgpr("Beta"), src1=vgpr(dataV+0), \
+            module.add(ti.VMulPKF16(dst=vgpr(dataV), src0=sgpr("Beta"), src1=vgpr(dataV+0), \
                 comment="%s = C*beta ei=%u vi=%u"%(vgpr(dataV),elementIdx, vi)))
             # dataV+0 = new c = old c*beta + rC
-            module.add(VAddPKF16(dst=vgpr("ValuC+%u"%(newSumIdxV)), src0=vgpr(dataV), src1=vgpr("ValuC+%u"%(newSumIdxV)), \
+            module.add(ti.VAddPKF16(dst=vgpr("ValuC+%u"%(newSumIdxV)), src0=vgpr(dataV), src1=vgpr("ValuC+%u"%(newSumIdxV)), \
                 comment="sum*alpha + C*beta"))
           else:
             pass # add will have been done previously
@@ -1924,7 +1925,7 @@ class GlobalWriteBatchWriter:
           hi16 = (vi + gwvw*vc0) % 2
           module.add(self.parentWriter.states.mixinst(dst=vgpr("ValuC+%u"%newSumIdxV), src0=sgpr("Beta"), \
               src1=vgpr(dataCExternal), src2=vgpr("ValuC+%u"%newSumIdxV), \
-              vop3=VOP3PModifiers(op_sel=[0,hi16,0], op_sel_hi=[0,1,0]),
+              vop3=ti.VOP3PModifiers(op_sel=[0,hi16,0], op_sel_hi=[0,1,0]),
               comment="//C*=beta"))
 
       elif kernel["ProblemType"]["DestDataType"].isBFloat16():
@@ -1934,66 +1935,66 @@ class GlobalWriteBatchWriter:
           # src1 = dataV = f16.lo = opsel 10 or 11 depending on even/odd
           # src2 = sumIdxV = f32 = opsel 00
           dataCExternal = ss.elementData[elementIdx] + vi//2
-          module.add(VCvtBF16toFP32(dst=(tmpVgpr), src=(dataCExternal), vgprMask=(cvtVgprStruct.vgprBf16Mask), vi=(vi)))
+          module.add(exti.VCvtBF16toFP32(dst=(tmpVgpr), src=(dataCExternal), vgprMask=(cvtVgprStruct.vgprBf16Mask), vi=(vi)))
           newSumIdxV = sumIdxV - self.parentWriter.states.c.startVgprValu
-          module.add(VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=sgpr("Beta"), \
+          module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=sgpr("Beta"), \
               comment="finalSum = sum*alpha + C*beta"))
       elif kernel["ProblemType"]["DestDataType"].isSingle():
         newSumIdxV = sumIdxV - self.parentWriter.states.c.startVgprValu
-        module.add(VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(dataV+0), src1=sgpr("Beta"), \
+        module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(dataV+0), src1=sgpr("Beta"), \
             comment="finalSum = sum*alpha + C*beta"))
 
       elif kernel["ProblemType"]["DestDataType"].isInt8():
         if kernel["ProblemType"]["HighPrecisionAccumulate"]:
           if (vi%4) != 3:
-            module.add(VMovB32(dst=vgpr(tmpVgpr+1), src=hex(vi * 8), comment="value = %u"%(vi * 8)))
-            module.add(VBfeI32(dst=vgpr(tmpVgpr), src0=vgpr(dataV+0), src1=vgpr(tmpVgpr+1), src2=8, comment="int8 to int32"))
+            module.add(ti.VMovB32(dst=vgpr(tmpVgpr+1), src=hex(vi * 8), comment="value = %u"%(vi * 8)))
+            module.add(ti.VBfeI32(dst=vgpr(tmpVgpr), src0=vgpr(dataV+0), src1=vgpr(tmpVgpr+1), src2=8, comment="int8 to int32"))
           else:
-            module.add(VAShiftRightI32(dst=vgpr(tmpVgpr), shiftHex=24, src=vgpr(dataV+0), comment="int8 to int32"))
+            module.add(ti.VAShiftRightI32(dst=vgpr(tmpVgpr), shiftHex=24, src=vgpr(dataV+0), comment="int8 to int32"))
 
           newSumIdxV = sumIdxV - self.parentWriter.states.c.startVgprValu
           if kernel["ProblemType"]["ComputeDataType"].isSingle():
-            module.add(VCvtI32toF32(dst=vgpr(tmpVgpr), src=vgpr(tmpVgpr), comment="convert to fp32" ))
-            module.add(VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=sgpr("Beta"), \
+            module.add(ti.VCvtI32toF32(dst=vgpr(tmpVgpr), src=vgpr(tmpVgpr), comment="convert to fp32" ))
+            module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=sgpr("Beta"), \
                                comment="finalSum = sum*alpha + C*beta"))
           else:
-            module.add(VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr("Beta"), src1=vgpr(tmpVgpr), comment="C = C*beta"))
-            module.add(VAddU32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=vgpr("ValuC+%u"%newSumIdxV), comment="finalSum = sum*alpha + C*beta"))
+            module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr), src0=sgpr("Beta"), src1=vgpr(tmpVgpr), comment="C = C*beta"))
+            module.add(ti.VAddU32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=vgpr("ValuC+%u"%newSumIdxV), comment="finalSum = sum*alpha + C*beta"))
 
       elif kernel["ProblemType"]["DestDataType"].isInt32():
         newSumIdxV = sumIdxV - self.parentWriter.states.c.startVgprValu
         if kernel["ProblemType"]["ComputeDataType"].isSingle():
-          module.add(VCvtI32toF32(dst=vgpr(dataV+0), src=vgpr(dataV+0), comment="convert to fp32" ))
-          module.add(VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(dataV+0), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta"))
+          module.add(ti.VCvtI32toF32(dst=vgpr(dataV+0), src=vgpr(dataV+0), comment="convert to fp32" ))
+          module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(dataV+0), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta"))
         else:
           # assume we will need to replace v_mac_f32 with v_add_u32 and s_mul_lo_i32
           # v_mad_i32_i24
-          # module.add(VMadI32I24(dst=vgpr("ValuC+%u"%sumIdxV), src0=vgpr(dataV+0), src1=sgpr("Beta"), src2=vgpr("ValuC+%u"%sumIdxV), \
+          # module.add(ti.VMadI32I24(dst=vgpr("ValuC+%u"%sumIdxV), src0=vgpr(dataV+0), src1=sgpr("Beta"), src2=vgpr("ValuC+%u"%sumIdxV), \
           #     comment="finalSum = sum*alpha + C*beta"))
-          module.add(VMulLOU32(dst=vgpr(dataV+0), src0=sgpr("Beta"), src1=vgpr(dataV+0), comment="C = C*beta"))
-          module.add(VAddU32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(dataV+0), src1=vgpr("ValuC+%u"%newSumIdxV), comment="finalSum = sum*alpha + C*beta"))
+          module.add(ti.VMulLOU32(dst=vgpr(dataV+0), src0=sgpr("Beta"), src1=vgpr(dataV+0), comment="C = C*beta"))
+          module.add(ti.VAddU32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(dataV+0), src1=vgpr("ValuC+%u"%newSumIdxV), comment="finalSum = sum*alpha + C*beta"))
 
       elif kernel["ProblemType"]["DestDataType"].isDouble():
         newSumIdxV = sumIdxV * 2 - self.parentWriter.states.c.startVgprValu
         # dataV+0 = new c = old c*beta
-        module.add(VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV),2), src0=vgpr(dataV+0,2), src1=sgpr("Beta",2), src2=vgpr("ValuC+%u"%(newSumIdxV),2), \
+        module.add(ti.VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV),2), src0=vgpr(dataV+0,2), src1=sgpr("Beta",2), src2=vgpr("ValuC+%u"%(newSumIdxV),2), \
             comment="finalSum = sum*alpha + C*beta"))
 
       # single precision complex
       elif kernel["ProblemType"]["DestDataType"].isSingleComplex():
         newSumIdxV = sumIdxV * 2 - self.parentWriter.states.c.startVgprValu
-        module.add(VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV)), src0=vgpr(dataV+0), src1=sgpr("Beta"), comment="finalSum Cr += old Cr * Br"))
-        module.add(VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV)), src0=vgpr(dataV+1), src1=sgpr("Beta+1").getMinus(), comment="finalSum Cr += old Ci * -Bi"))
-        module.add(VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr(dataV+1), src1=sgpr("Beta"), comment="finalSum Ci += old Ci * Br"))
-        module.add(VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr(dataV+0), src1=sgpr("Beta+1"), comment="finalSum Ci += old Cr * Bi"))
+        module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV)), src0=vgpr(dataV+0), src1=sgpr("Beta"), comment="finalSum Cr += old Cr * Br"))
+        module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV)), src0=vgpr(dataV+1), src1=sgpr("Beta+1").getMinus(), comment="finalSum Cr += old Ci * -Bi"))
+        module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr(dataV+1), src1=sgpr("Beta"), comment="finalSum Ci += old Ci * Br"))
+        module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr(dataV+0), src1=sgpr("Beta+1"), comment="finalSum Ci += old Cr * Bi"))
 
       # double precision complex
       elif kernel["ProblemType"]["DestDataType"].isDoubleComplex():
         newSumIdxV = sumIdxV * 4 - self.parentWriter.states.c.startVgprValu
-        module.add(VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV+0),2), src0=vgpr(dataV+0,2), src1=sgpr("Beta+0",2), src2=vgpr("ValuC+%u"%(newSumIdxV+0),2), comment="c.real += a.real * b.real"))
-        module.add(VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV+0),2), src0=vgpr(dataV+2,2), src1=sgpr("Beta+2",2), src2=vgpr("ValuC+%u"%(newSumIdxV+0),2), comment="c.real -= a.imag * b.imag"))
-        module.add(VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV+2),2), src0=vgpr(dataV+0,2), src1=sgpr("Beta+2",2), src2=vgpr("ValuC+%u"%(newSumIdxV+2),2), comment="c.imag += a.real * b.imag"))
-        module.add(VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV+2),2), src0=vgpr(dataV+2,2), src1=sgpr("Beta+0",2), src2=vgpr("ValuC+%u"%(newSumIdxV+2),2), comment="c.imag += a.imag * b.real"))
+        module.add(ti.VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV+0),2), src0=vgpr(dataV+0,2), src1=sgpr("Beta+0",2), src2=vgpr("ValuC+%u"%(newSumIdxV+0),2), comment="c.real += a.real * b.real"))
+        module.add(ti.VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV+0),2), src0=vgpr(dataV+2,2), src1=sgpr("Beta+2",2), src2=vgpr("ValuC+%u"%(newSumIdxV+0),2), comment="c.real -= a.imag * b.imag"))
+        module.add(ti.VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV+2),2), src0=vgpr(dataV+0,2), src1=sgpr("Beta+2",2), src2=vgpr("ValuC+%u"%(newSumIdxV+2),2), comment="c.imag += a.real * b.imag"))
+        module.add(ti.VFmaF64(dst=vgpr("ValuC+%u"%(newSumIdxV+2),2), src0=vgpr(dataV+2,2), src1=sgpr("Beta+0",2), src2=vgpr("ValuC+%u"%(newSumIdxV+2),2), comment="c.imag += a.imag * b.real"))
 
       # float8 precision
       elif kernel["ProblemType"]["DestDataType"].isFloat8():
@@ -2002,17 +2003,17 @@ class GlobalWriteBatchWriter:
           # Generate single f32 code if edge is detected.
           isPK = False
           if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
-            if self.parentWriter.states.archCaps["VOP3ByteSel"]:
+            if self.parentWriter.states.archCaps["ti.VOP3ByteSel"]:
               sb = 0 if self.gwvw == 1 else 1
               clangver = globalParameters['AMDClangVersion'].split(".")
               clangMaj = int(clangver[0])
               if not (clangMaj >= 19):
-                module.add(VCvtFP8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), vop3=VOP3PModifiers(op_sel=[0,sb])))
+                module.add(ti.VCvtFP8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), vop3=ti.VOP3PModifiers(op_sel=[0,sb])))
               else:
-                module.add(VCvtFP8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), vop3=VOP3PModifiers(byte_sel=sb)))
+                module.add(ti.VCvtFP8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), vop3=ti.VOP3PModifiers(byte_sel=sb)))
             else:
               sb = SelectBit.BYTE_0 if self.gwvw == 1 else SelectBit.BYTE_2
-              module.add(VCvtFP8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
+              module.add(ti.VCvtFP8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
           # Original packed route
           elif vi%2 == 1:
             continue
@@ -2021,16 +2022,16 @@ class GlobalWriteBatchWriter:
             if self.parentWriter.states.archCaps["NoSDWA"]:
               # Enable WORD_0 of 2-nd VGPR with vi=4 for vw=8
               sb = 0 if vi%4 == 0 else 1
-              module.add(VCvtPkFP8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), vop3=VOP3PModifiers(op_sel=[sb])))
+              module.add(ti.VCvtPkFP8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), vop3=ti.VOP3PModifiers(op_sel=[sb])))
             else:
               # Enable WORD_0 of 2-nd VGPR with vi=4 for vw=8
               sb = SelectBit.WORD_0 if vi%4 == 0 else SelectBit.WORD_1
-              module.add(VCvtPkFP8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
-          module.add(SNop(waitState=0))
+              module.add(ti.VCvtPkFP8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
+          module.add(ti.SNop(waitState=0))
           if kernel["ProblemType"]["ComputeDataType"].isSingle():
-            module.add(VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta"))
+            module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta"))
             if isPK:
-              module.add(VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr(tmpVgpr+1), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta (PK)"))
+              module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr(tmpVgpr+1), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta (PK)"))
       # bfloat8 precision
       elif kernel["ProblemType"]["DestDataType"].isBFloat8():
         if kernel["ProblemType"]["HighPrecisionAccumulate"]:
@@ -2038,17 +2039,17 @@ class GlobalWriteBatchWriter:
           # Generate single f32 code if edge is detected.
           isPK = False
           if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
-            if self.parentWriter.states.archCaps["VOP3ByteSel"]:
+            if self.parentWriter.states.archCaps["ti.VOP3ByteSel"]:
               sb = 0 if self.gwvw == 1 else 1
               clangver = globalParameters['AMDClangVersion'].split(".")
               clangMaj = int(clangver[0])
               if not (clangMaj >= 19):
-                module.add(VCvtBF8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), vop3=VOP3PModifiers(op_sel=[0,sb])))
+                module.add(ti.VCvtBF8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), vop3=ti.VOP3PModifiers(op_sel=[0,sb])))
               else:
-                module.add(VCvtBF8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), vop3=VOP3PModifiers(byte_sel=sb)))
+                module.add(ti.VCvtBF8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), vop3=ti.VOP3PModifiers(byte_sel=sb)))
             else:
               sb = SelectBit.BYTE_0 if self.gwvw == 1 else SelectBit.BYTE_2
-              module.add(VCvtBF8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
+              module.add(ti.VCvtBF8toF32(dst=vgpr(tmpVgpr), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
           # Original packed route
           elif vi%2 == 1:
             continue
@@ -2057,16 +2058,16 @@ class GlobalWriteBatchWriter:
             if self.parentWriter.states.archCaps["NoSDWA"]:
               # Enable WORD_0 of 2-nd VGPR with vi=4 for vw=8
               sb = 0 if vi%4 == 0 else 1
-              module.add(VCvtPkBF8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), vop3=VOP3PModifiers(op_sel=[sb])))
+              module.add(ti.VCvtPkBF8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), vop3=ti.VOP3PModifiers(op_sel=[sb])))
             else:
               # Enable WORD_0 of 2-nd VGPR with vi=4 for vw=8
               sb = SelectBit.WORD_0 if vi%4 == 0 else SelectBit.WORD_1
-              module.add(VCvtPkBF8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
-          module.add(SNop(waitState=0))
+              module.add(ti.VCvtPkBF8toF32(dst=vgpr(tmpVgpr, 2), src=vgpr(dataV), sdwa=SDWAModifiers(src0_sel=sb)))
+          module.add(ti.SNop(waitState=0))
           if kernel["ProblemType"]["ComputeDataType"].isSingle():
-            module.add(VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta"))
+            module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%newSumIdxV), src0=vgpr(tmpVgpr), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta"))
             if isPK:
-              module.add(VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr(tmpVgpr+1), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta (PK)"))
+              module.add(ti.VMacF32(dst=vgpr("ValuC+%u"%(newSumIdxV+1)), src0=vgpr(tmpVgpr+1), src1=sgpr("Beta"), comment="finalSum = sum*alpha + C*beta (PK)"))
     return module
 
 def copyData(computeDataType, elementSumIdx, gwvw, vgprStart, direction=0):
@@ -2077,17 +2078,17 @@ def copyData(computeDataType, elementSumIdx, gwvw, vgprStart, direction=0):
       if (sumIdxV % 2 != 0):
         continue
       vgprIdx = elementSumIdx + vi // 2
-      module.add(VMovB32(dst=vgpr(vgprStart + (vi // 2)), src=vgpr(vgprIdx)))
+      module.add(ti.VMovB32(dst=vgpr(vgprStart + (vi // 2)), src=vgpr(vgprIdx)))
     elif computeDataType.isSingle():
       vgprIdx = sumIdxV
-      module.add(VMovB32(dst=vgpr(vgprStart + vi), src=vgpr(vgprIdx)))
+      module.add(ti.VMovB32(dst=vgpr(vgprStart + vi), src=vgpr(vgprIdx)))
     elif computeDataType.isDouble():
       vgprIdx = elementSumIdx + vi * 2
-      module.add(VMovB32(dst=vgpr(vgprStart + vi * 2), src=vgpr(vgprIdx)))
-      module.add(VMovB32(dst=vgpr(vgprStart + vi * 2 + 1), src=vgpr(vgprIdx+1)))
+      module.add(ti.VMovB32(dst=vgpr(vgprStart + vi * 2), src=vgpr(vgprIdx)))
+      module.add(ti.VMovB32(dst=vgpr(vgprStart + vi * 2 + 1), src=vgpr(vgprIdx+1)))
     elif computeDataType.isInt32():
       vgprIdx = sumIdxV
-      module.add(VMovB32(dst=vgpr(vgprStart + vi), src=vgpr(vgprIdx)))
+      module.add(ti.VMovB32(dst=vgpr(vgprStart + vi), src=vgpr(vgprIdx)))
     else:
       assert 0
 
@@ -2105,10 +2106,10 @@ def convertData(gwvw, elementSumIdx, cvtType: CvtType, roundType: RoundType = Ro
     formatVgpr = formatting(sumIdxV, inputPrefix, prefixOffset)
     if cvtType == CvtType.CVT_F32_to_I32:
         if roundType == RoundType.ROUND_TO_NEAREST_EVEN:
-          module.add(VRndneF32(dst=vgpr(formatVgpr), src=vgpr(formatVgpr), comment=" round to even"))
-        module.add(VCvtF32toI32(dst=vgpr(formatVgpr), src=vgpr(formatVgpr), comment=" convert fp32 to i32"))
+          module.add(ti.VRndneF32(dst=vgpr(formatVgpr), src=vgpr(formatVgpr), comment=" round to even"))
+        module.add(ti.VCvtF32toI32(dst=vgpr(formatVgpr), src=vgpr(formatVgpr), comment=" convert fp32 to i32"))
     elif cvtType == CvtType.CVT_I32_to_F32:
-        module.add(VCvtI32toF32(dst=vgpr(formatVgpr), src=vgpr(formatVgpr), comment=" convert to fp32"))
+        module.add(ti.VCvtI32toF32(dst=vgpr(formatVgpr), src=vgpr(formatVgpr), comment=" convert to fp32"))
     else:
       #TODO add other convert types here.
       assert 0

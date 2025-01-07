@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,11 +20,11 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from ..TensileInstructions import Item, Module, HolderContainer, Instruction, \
-                                GlobalReadInstruction, LocalReadInstruction, \
-                                LocalWriteInstruction, SSetPrior, SWaitCnt, \
-                                replaceHolder, fastdeepcopy, VMovB32, \
-                                DSStoreB128, DSStoreB64, DSStoreB32
+from ..TensileInstructions import Instructions as ti
+from ..TensileInstructions.Base import Item, fastdeepcopy
+from ..TensileInstructions.Code import Module
+from ..TensileInstructions.Containers import HolderContainer
+from ..TensileInstructions.Utils import replaceHolder
 from ..Common import roundUp
 from ..Component import SIA
 from ..TensileInstructions.Containers import DSModifiers
@@ -536,7 +536,7 @@ def appendInstToSchedSIA3(writer, kernel, numEmptyGlobalReadIncCode, globalReadI
         for i in range(numEmptyGlobalReadIncCode+1):
             imod = Module()
             itemsGRIncToSched.append(imod)
-    numInst = globalReadIncACode.countType(Instruction) + globalReadIncBCode.countType(Instruction)
+    numInst = globalReadIncACode.countType(ti.Instruction) + globalReadIncBCode.countType(ti.Instruction)
     numInstPerMfma = max(roundUp(writer.states.miLatencyLeft/2),1)
 
     globalReadIncItems = globalReadIncACode.flatitems() + globalReadIncBCode.flatitems()
@@ -547,7 +547,7 @@ def appendInstToSchedSIA3(writer, kernel, numEmptyGlobalReadIncCode, globalReadI
         while globalReadIncItems and count < numInstPerMfma:
             tempInst = globalReadIncItems.pop(0)
             imod.add(tempInst)
-            if tempInst.countType(Instruction):
+            if tempInst.countType(ti.Instruction):
                 count += 1
         itemsGRIncToSched.append(imod)
         for i in range(numEmptyGlobalReadIncCode):
@@ -727,7 +727,7 @@ def prepareLWInstToSched(writer, kernel, numLocalWritesPerSched, isNGLL=False):
         item = itemsLWToSched.pop(0)
         itemsLWToSchedTemp.append(item)
         skip = kernel["PrefetchGlobalRead"] == 2 and kernel["ProblemType"]["Sparse"] and kernel["DirectToVgprSparseMetadata"] \
-           and item.name.startswith("MetadataWrite") and item.countType(VMovB32)
+           and item.name.startswith("MetadataWrite") and item.countType(ti.VMovB32)
         if not skip:
            for j in range(PRECISION-1):
                itemsLWToSchedTemp.append(Module())
@@ -739,7 +739,7 @@ def prepareLWInstToSched(writer, kernel, numLocalWritesPerSched, isNGLL=False):
     # This counts the number of modules which contain a ds_write
     # Scheduler below keeps all writes in the same module in same iteration
     # so this is better match to what it is trying to do
-    # numWritesToSched = sum(1 for item in itemsLWToSched if item.countType(LocalWriteInstruction))
+    # numWritesToSched = sum(1 for item in itemsLWToSched if item.countType(ti.LocalWriteInstruction))
     numWritesToSched = len(itemsLWToSched)
     return itemsLWToSched, numWritesToSched
 
@@ -801,15 +801,15 @@ def schedLocalWrite(writer, kernel, numLocalWriteModPerIter, numLocalWritesPerSc
             # Use a module to ensure these pieces stay together in the sub-iter scheduler
             imod = Module("LocalWriteMod%u"%u)
             imodNGLL = Module("LocalWriteMod%u"%u)
-            writesPerItem = item.countType(LocalWriteInstruction)
+            writesPerItem = item.countType(ti.LocalWriteInstruction)
             if kernel["ProblemType"]["Sparse"] and not writesPerItem:
-                writesPerItem = item.name.startswith("MetadataWrite") and item.countType(VMovB32)
+                writesPerItem = item.name.startswith("MetadataWrite") and item.countType(ti.VMovB32)
             if writesPerItem:
                 # Split into several dsStore32
                 itemNew, numItemNew, globalReadInstOffset = splitDSInstructionIntoSmaller(writer, kernel, item, numLocalWritesPerSched, len(itemsLWToSched), itemsLWToSchedIndex)
                 if itemsLWToSchedIndex + globalReadInstOffset <= len(itemsLWToSched):
                     additionalIndexList = {}
-                    for i in range(numItemNew): 
+                    for i in range(numItemNew):
                         additionalIndexList[i * numLocalWritesPerSched + itemsLWToSchedIndex] = itemNew[i]
                 else:
                     globalReadInstOffset = 0
@@ -822,10 +822,10 @@ def schedLocalWrite(writer, kernel, numLocalWriteModPerIter, numLocalWritesPerSc
                 # TODO - can schedule these writes across iters, should figure this out above
                 readsToWait = readsToWait - 1
                 readsToWaitNGLL = readsToWaitNGLL - 1
-                imod.add(SWaitCnt(lgkmcnt=-1, \
+                imod.add(ti.SWaitCnt(lgkmcnt=-1, \
                     vmcnt=min(maxVmcnt, readsToWait), vscnt=-1, \
                     comment="wait for global read before writing to local"))
-                imodNGLL.add(SWaitCnt(lgkmcnt=-1, \
+                imodNGLL.add(ti.SWaitCnt(lgkmcnt=-1, \
                     vmcnt=min(maxVmcnt, readsToWaitNGLL), vscnt=-1, \
                     comment="wait for global read before writing to local"))
             # PK and StoreCUnroll is removed so you cannot find any HolderContainer in s_waitcnt
@@ -838,7 +838,7 @@ def schedLocalWrite(writer, kernel, numLocalWriteModPerIter, numLocalWritesPerSc
                         readsToWaitAdjust = len(list(writer.codes.globalReadA.middle.items())) + len(list(writer.codes.globalReadB.middle.items()))
                     for wc in wcList:
                         replaceHolder(wc, (readsToWaitAdjust))
-            
+
             if itemsLWToSchedIndex in additionalIndexList:
                 imod.add(additionalIndexList[itemsLWToSchedIndex])
                 additionalIndexList.pop(itemsLWToSchedIndex)
@@ -850,7 +850,7 @@ def schedLocalWrite(writer, kernel, numLocalWriteModPerIter, numLocalWritesPerSc
                 reads = 0
                 while itemsGRToSchedLater:
                     itemGR = itemsGRToSchedLater[0]
-                    readsInc = itemGR.countType(GlobalReadInstruction)
+                    readsInc = itemGR.countType(ti.GlobalReadInstruction)
                     reads = reads + readsInc
                     if reads > 1:
                         break
@@ -894,34 +894,34 @@ def schedLocalWrite(writer, kernel, numLocalWriteModPerIter, numLocalWritesPerSc
 def splitDSInstructionIntoSmaller(writer, kernel, item, numLocalWritesPerSched, lenOfItems, currentModIdx):
     if not item:
         return None, 0, 0
-    if item.countType(DSStoreB128) != 1 or item.countType(Instruction) != 1:
+    if item.countType(ti.DSStoreB128) != 1 or item.countType(ti.Instruction) != 1:
         # only support one b128
         return None, 0, 0
 
     instruction = None
     itemList = item.flatitems()
     for inst in itemList:
-        if isinstance(inst, DSStoreB128):
+        if isinstance(inst, ti.DSStoreB128):
             instruction = inst
             break
     if instruction == None:
         assert 0, "no instructions to be splitted"
 
-    lwLatency = DSStoreB128.issueLatency()
+    lwLatency = ti.DSStoreB128.issueLatency()
     miLatency = writer.states.miLatency
     div       = 1
     dsOffset  = 0
 
-    LocalWriteX = DSStoreB128
-    if DSStoreB128.issueLatency() < (miLatency - 1):
+    LocalWriteX = ti.DSStoreB128
+    if ti.DSStoreB128.issueLatency() < (miLatency - 1):
         # no need to split
         return None, 0, 0
-    elif DSStoreB64.issueLatency() < (miLatency - 1):
-        LocalWriteX = DSStoreB64
+    elif ti.DSStoreB64.issueLatency() < (miLatency - 1):
+        LocalWriteX = ti.DSStoreB64
         dsOffset = 8
         div = 2
-    elif DSStoreB32.issueLatency() < (miLatency - 1):
-        LocalWriteX = DSStoreB32
+    elif ti.DSStoreB32.issueLatency() < (miLatency - 1):
+        LocalWriteX = ti.DSStoreB32
         dsOffset = 4
         div = 4
     else:
@@ -964,7 +964,7 @@ def splitDSInstructionIntoSmaller(writer, kernel, item, numLocalWritesPerSched, 
         r1.regNum //= div
         r1.regName.offsets.append(4 // div * d)
         writeInst.append(LocalWriteX(dstAddr=addr, src=r1, ds=ds1, comment=instruction.comment + " splitted"))
-    
+
     return writeInst, len(writeInst), numLocalWritesPerSched * (div - 1)
 
 
@@ -984,7 +984,7 @@ def hasHolderInWaitCnt(module: Item):
             tmpHasHolder, tmpList = hasHolderInWaitCnt(item)
             hasHolder = hasHolder or tmpHasHolder
             wcList.extend(tmpList)
-    elif isinstance(module, SWaitCnt):
+    elif isinstance(module, ti.SWaitCnt):
         wcList.append(module)
         if isinstance(module.lgkmcnt, HolderContainer) or \
            isinstance(module.vmcnt, HolderContainer) or \

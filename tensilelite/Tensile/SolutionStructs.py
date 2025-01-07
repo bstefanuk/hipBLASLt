@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,7 +29,7 @@ from .Common import assignParameterWithDefault, \
                     print2, printExit, printWarning, \
                     validMFMA, validSMFMA, validParameters, \
                     validGEMMTypes, HPATypes, roundUp, validWMMA
-from .TensileInstructions import DataType, roundUpToNearestMultiple
+from .TensileInstructions.Utils import DataType, roundUpToNearestMultiple
 from .TensileInstructions.Base import fastdeepcopy as deepcopy
 
 from .KernelWriterBetaOnly import KernelWriterBetaOnly
@@ -1825,7 +1825,6 @@ class Solution(collections.abc.Mapping):
   # determine can we use DirectToVgpr
   @staticmethod
   def isDirectToVgprDoable(state, tc):
-    MIindex = 0 if tc == 'A' else 1
     numBytes = state["ProblemType"]["DataType"].numBytes()
     numBytesGR = state["ProblemType"]["DataType%s"%tc].numBytes()
     # With MatrixInstruction only
@@ -1960,7 +1959,7 @@ class Solution(collections.abc.Mapping):
     if state["PrefetchGlobalRead"] == 0:
       reject(state, "DirectToVgpr%c does not supports PrefetchGlobalRead == 0."%(tc))
       return False
-    
+
     # for DTVA, does not work with NN and TLDS0
     if tc == 'A' and state["TransposeLDS"] == 0 and (not state["ProblemType"]["TransposeA"] and not state["ProblemType"]["TransposeB"]):
       reject(state, "DirectToVgpr%c does not supports NN case with TransposeLDS == 0."%(tc))
@@ -1975,7 +1974,7 @@ class Solution(collections.abc.Mapping):
     if  tc == 'B' and (not state["ProblemType"]["TransposeA"] and not state["ProblemType"]["TransposeB"]):
         # Use AssertSummationElementMultiple (BoundSizeMultiple in predicates) to exclude failed tail-loop cases
         state["AssertSummationElementMultiple"] = max(state["AssertSummationElementMultiple"], state["DepthU"])
-    
+
     # Does not work with DirectToLDS
     # -> this will be checked after DirectToLDS doable check is done
 
@@ -2204,7 +2203,7 @@ class Solution(collections.abc.Mapping):
       if state["ScheduleGlobalRead"] != 1:
         reject(state, "ScheduleGlobalRead not supported with Stream-K")
       if state["ScheduleLocalWrite"] != 1:
-        reject(statue, "ScheduleLocalWrite not supported with Stream-K")
+        reject(state, "ScheduleLocalWrite not supported with Stream-K")
       if state["ScheduleIterAlg"] != 1 and state["ScheduleIterAlg"] != 3:
         reject(state, "ScheduleIterAlg not supported with Stream-K")
       if state["StreamKAtomic"] == 1:
@@ -2803,16 +2802,16 @@ class Solution(collections.abc.Mapping):
 
     if state["ProblemType"]["SwizzleTensorA"]:
       if not state["DirectToVgprA"]:
-        reject(state, f"Tensor A swizzling requires DirectToVgprA")
+        reject(state, "Tensor A swizzling requires DirectToVgprA")
       if not state["ProblemType"]["TransposeA"]:
-        reject(state, f"Tensor A swizzling supports TN or TT only")
+        reject(state, "Tensor A swizzling supports TN or TT only")
 
     if state["ProblemType"]["SwizzleTensorB"]:
       if not state["DirectToVgprB"]:
-        reject(state, f"Tensor B swizzling requires DirectToVgprB")
+        reject(state, "Tensor B swizzling requires DirectToVgprB")
       # TODO- NN fails validation due to DTVB + Tail-Loop is not working correctly
       if not (state["ProblemType"]["TransposeA"] and not state["ProblemType"]["TransposeB"]):
-        reject(state, f"Tensor B swizzling supports TN only")
+        reject(state, "Tensor B swizzling supports TN only")
 
     def calcOptGRVW(lrvw: int, unrollMajorLDS: bool, datatype: DataType) -> int:
       # with UnrollMajorLDS, GRVW need to less or equal than LRVW to have conflict free LDS read with padding.
@@ -3184,14 +3183,11 @@ class Solution(collections.abc.Mapping):
         GlobalReadVectorWidthMetadata = state["GlobalReadVectorWidthMetadata"]
         if GlobalReadVectorWidthMetadata == 0:
           GlobalReadVectorWidthMetadata = 1
-        totalVectorsCoalescedM = totalElementsCoalescedM // GlobalReadVectorWidthMetadata
-        totalVectorsM = totalElementsM // GlobalReadVectorWidthMetadata
 
       if not Solution.setGlobalLoadTileDimClassic(state, "Metadata", state["NumLoadsMetadata"], \
           totalVectorsCoalescedM, totalElementsPerpM, depthUM):
         return
 
-    # TODO
     if (0 and state["LSCA"] % state["GlobalReadVectorWidthA"] != 0):
       reject(state, "lsca % grvw != 0")
       return
@@ -3216,9 +3212,9 @@ class Solution(collections.abc.Mapping):
 
     for tc in ('A','B'):
       if problemType["TLU%s"%tc]:
-        pos = problemType["IndexAssignments%s"%tc].index(problemType["Index01%s"%tc])
+        problemType["IndexAssignments%s"%tc].index(problemType["Index01%s"%tc])
       else:
-        pos = problemType["IndexAssignments%s"%tc].index(problemType["IndexUnroll"])
+        problemType["IndexAssignments%s"%tc].index(problemType["IndexUnroll"])
 
     # Some of these might become 0?
     if 0:

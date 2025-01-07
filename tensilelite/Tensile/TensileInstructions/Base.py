@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,7 +20,7 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Formatting import __TI_DEBUG_LEVEL__, printExit
+from .Formatting import printExit
 
 from copy import deepcopy
 from dataclasses import dataclass
@@ -73,9 +73,6 @@ class TensileInstructions:
                 asmBugs  = _initAsmBugs(asmCaps)
                 self._isaInfo[isaVersion] = TensileInstructions.IsaInfo(assemblerPath, # type: ignore
                     asmCaps, archCaps, regCaps, asmBugs)
-
-    def setDebugLevel(self, level: int) -> None:
-        __TI_DEBUG_LEVEL__ = level
 
     def setKernelInfo(self, isaVersion: Tuple[int, int, int], wavefrontSize: int) -> None:
         if isaVersion not in self._isaInfo: # type: ignore
@@ -153,7 +150,7 @@ class Item:
     @property
     def archCaps(self) -> dict:
         return _global_ti.getArchCaps()
-    
+
     @property
     def regCaps(self) -> dict:
         return _global_ti.getRegCaps()

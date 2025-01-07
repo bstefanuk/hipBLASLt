@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2023 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,7 +20,8 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .TensileInstructions import Module, SAddI32, SEndpgm, fastdeepcopy
+from .TensileInstructions.Code import Module
+from .TensileInstructions import Instructions as ti
 
 from dataclasses import dataclass, field
 
@@ -70,13 +71,13 @@ def _replaceActBranchLabel(module, labels):
                 labelLeft = labels[1:]
                 replaceLabel = False
                 for inst in item.items():
-                    if isinstance(inst, SAddI32) and inst.comment == "target branch offset":
+                    if isinstance(inst, ti.SAddI32) and inst.comment == "target branch offset":
                         if inst.srcs[0] in labelLeft:
                             replaceLabel = True
                             break
                 if replaceLabel:
                     for inst in item.items():
-                        if isinstance(inst, SAddI32) and inst.comment == "target branch offset":
+                        if isinstance(inst, ti.SAddI32) and inst.comment == "target branch offset":
                             # The label is generated in the format of XXXX_1, XXXX_2
                             # and string.rpartition returns ('XXXX', '_', '1').
                             # We only need the first string.
@@ -101,4 +102,4 @@ def _removeDuplicatedActivationFunctions(module):
             _replaceActBranchLabel(module, labels)
     if moduleLast.items():
         module.add(moduleLast)
-        module.add(SEndpgm())
+        module.add(ti.SEndpgm())

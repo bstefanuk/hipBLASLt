@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -21,11 +21,11 @@
 ################################################################################
 
 from .Code import Module, Label, TextBlock
-from .Containers import RegisterContainer, VCC
+from .Containers import RegisterContainer, VCC, DSModifiers
 from .DataType import DataType
 from .RegisterPool import RegisterPoolResource
 from .Utils import vgpr, sgpr, log2
-from .Instructions import *
+from . import Instructions as Inst
 
 from enum import Enum
 from typing import Union
@@ -58,22 +58,22 @@ def SLongBranch(label: Label, tmpSgprRes: RegisterPoolResource, postiveLabelStr:
     assert tmpSgprRes.size >= 3
     tmpSgpr = tmpSgprRes.idx
     positiveLabel = Label(postiveLabelStr, "")
-    module.add(SGetPCB64(dst=sgpr(tmpSgpr,2), comment="addr of next instr"))
-    module.add(SAddI32(dst=sgpr(tmpSgpr+2), src0=labelName, src1=hex(4), comment="target branch offset"))
-    module.add(SCmpGeI32(src0=sgpr(tmpSgpr+2), src1=hex(0), comment="check positive or negative"))
-    module.add(SCBranchSCC1(labelName=positiveLabel.getLabelName(), comment="jump when positive"))
+    module.add(Inst.SGetPCB64(dst=sgpr(tmpSgpr,2), comment="addr of next instr"))
+    module.add(Inst.SAddI32(dst=sgpr(tmpSgpr+2), src0=labelName, src1=hex(4), comment="target branch offset"))
+    module.add(Inst.SCmpGeI32(src0=sgpr(tmpSgpr+2), src1=hex(0), comment="check positive or negative"))
+    module.add(Inst.SCBranchSCC1(labelName=positiveLabel.getLabelName(), comment="jump when positive"))
 
     # negative offset
-    module.add(SAbsI32(dst=sgpr(tmpSgpr+2), src=sgpr(tmpSgpr+2), comment="abs offset"))
-    module.add(SSubU32(dst=sgpr(tmpSgpr), src0=sgpr(tmpSgpr), src1=sgpr(tmpSgpr+2), comment="sub target branch offset"))
-    module.add(SSubBU32(dst=sgpr(tmpSgpr+1), src0=sgpr(tmpSgpr+1), src1=0, comment="sub high and carry"))
-    module.add(SSetPCB64(src=sgpr(tmpSgpr,2), comment="branch to %s"%labelName))
+    module.add(Inst.SAbsI32(dst=sgpr(tmpSgpr+2), src=sgpr(tmpSgpr+2), comment="abs offset"))
+    module.add(Inst.SSubU32(dst=sgpr(tmpSgpr), src0=sgpr(tmpSgpr), src1=sgpr(tmpSgpr+2), comment="sub target branch offset"))
+    module.add(Inst.SSubBU32(dst=sgpr(tmpSgpr+1), src0=sgpr(tmpSgpr+1), src1=0, comment="sub high and carry"))
+    module.add(Inst.SSetPCB64(src=sgpr(tmpSgpr,2), comment="branch to %s"%labelName))
 
     # positive offset
     module.add(positiveLabel)
-    module.add(SAddU32(dst=sgpr(tmpSgpr), src0=sgpr(tmpSgpr), src1=sgpr(tmpSgpr+2), comment="add target branch offset"))
-    module.add(SAddCU32(dst=sgpr(tmpSgpr+1), src0=sgpr(tmpSgpr+1), src1=0, comment="add high and carry"))
-    module.add(SSetPCB64(src=sgpr(tmpSgpr,2), comment="branch to %s"%labelName))
+    module.add(Inst.SAddU32(dst=sgpr(tmpSgpr), src0=sgpr(tmpSgpr), src1=sgpr(tmpSgpr+2), comment="add target branch offset"))
+    module.add(Inst.SAddCU32(dst=sgpr(tmpSgpr+1), src0=sgpr(tmpSgpr+1), src1=0, comment="add high and carry"))
+    module.add(Inst.SSetPCB64(src=sgpr(tmpSgpr,2), comment="branch to %s"%labelName))
     return module
 
 ##############################################################################
@@ -88,12 +88,12 @@ def SGetPositivePCOffset(sgprIdx, label: Label, tmpSgprRes: RegisterPoolResource
     module = Module("SGetPositivePCOffset %s"%labelName)
     assert tmpSgprRes.size >= 1
     tmpSgpr = tmpSgprRes.idx
-    module.add(SGetPCB64(dst=sgpr(sgprIdx,2), comment="addr of next instr"))
-    module.add(SAddI32(dst=sgpr(tmpSgpr), src0=labelName, src1=hex(4), comment="target branch offset"))
+    module.add(Inst.SGetPCB64(dst=sgpr(sgprIdx,2), comment="addr of next instr"))
+    module.add(Inst.SAddI32(dst=sgpr(tmpSgpr), src0=labelName, src1=hex(4), comment="target branch offset"))
 
     # positive offset
-    module.add(SAddU32(dst=sgpr(sgprIdx), src0=sgpr(sgprIdx), src1=sgpr(tmpSgpr), comment="add target branch offset"))
-    module.add(SAddCU32(dst=sgpr(sgprIdx+1), src0=sgpr(sgprIdx+1), src1=0, comment="add high and carry"))
+    module.add(Inst.SAddU32(dst=sgpr(sgprIdx), src0=sgpr(sgprIdx), src1=sgpr(tmpSgpr), comment="add target branch offset"))
+    module.add(Inst.SAddCU32(dst=sgpr(sgprIdx+1), src0=sgpr(sgprIdx+1), src1=0, comment="add high and carry"))
     return module
 
 def SLongBranchPositive(label: Label, tmpSgprRes: RegisterPoolResource, comment=""):
@@ -110,7 +110,7 @@ def SLongBranchPositive(label: Label, tmpSgprRes: RegisterPoolResource, comment=
         tmpSgprX2 = tmpSgprRes.idx+1
         tmpSgprX1 = tmpSgprRes.idx
     module.addModuleAsFlatItems(SGetPositivePCOffset(tmpSgprX2, label, RegisterPoolResource(tmpSgprX1, 1)))
-    module.add(SSetPCB64(src=sgpr(tmpSgprX2,2), comment="branch to %s"%labelName))
+    module.add(Inst.SSetPCB64(src=sgpr(tmpSgprX2,2), comment="branch to %s"%labelName))
     return module
 
 ##############################################################################
@@ -133,14 +133,14 @@ def SLongBranchNegative(label: Label, tmpSgprRes: RegisterPoolResource, comment=
     else:
         tmpSgprX2 = tmpSgprRes.idx+1
         tmpSgprX1 = tmpSgprRes.idx
-    module.add(SGetPCB64(dst=sgpr(tmpSgprX2,2), comment="addr of next instr"))
-    module.add(SAddI32(dst=sgpr(tmpSgprX1), src0=labelName, src1=hex(4), comment="target branch offset"))
+    module.add(Inst.SGetPCB64(dst=sgpr(tmpSgprX2,2), comment="addr of next instr"))
+    module.add(Inst.SAddI32(dst=sgpr(tmpSgprX1), src0=labelName, src1=hex(4), comment="target branch offset"))
 
     # negative offset
-    module.add(SAbsI32(dst=sgpr(tmpSgprX1), src=sgpr(tmpSgprX1), comment="abs offset"))
-    module.add(SSubU32(dst=sgpr(tmpSgprX2), src0=sgpr(tmpSgprX2), src1=sgpr(tmpSgprX1), comment="sub target branch offset"))
-    module.add(SSubBU32(dst=sgpr(tmpSgprX2+1), src0=sgpr(tmpSgprX2+1), src1=0, comment="sub high and carry"))
-    module.add(SSetPCB64(src=sgpr(tmpSgprX2,2), comment="branch to %s"%labelName))
+    module.add(Inst.SAbsI32(dst=sgpr(tmpSgprX1), src=sgpr(tmpSgprX1), comment="abs offset"))
+    module.add(Inst.SSubU32(dst=sgpr(tmpSgprX2), src0=sgpr(tmpSgprX2), src1=sgpr(tmpSgprX1), comment="sub target branch offset"))
+    module.add(Inst.SSubBU32(dst=sgpr(tmpSgprX2+1), src0=sgpr(tmpSgprX2+1), src1=0, comment="sub high and carry"))
+    module.add(Inst.SSetPCB64(src=sgpr(tmpSgprX2,2), comment="branch to %s"%labelName))
     return module
 
 ##############################################################################
@@ -153,7 +153,7 @@ def SCLongBranchScc0(label: Label, tmpSgprRes: RegisterPoolResource, \
                      posNeg: int = 0, comment=""):
     module = Module("SCLongBranchScc0 %s"%label.getLabelName())
     noBranchLabel = Label(noBranchLabelStr, "")
-    module.add(SCBranchSCC1(labelName=noBranchLabel.getLabelName(), \
+    module.add(Inst.SCBranchSCC1(labelName=noBranchLabel.getLabelName(), \
                             comment="Only branch on scc0"))
     if posNeg > 0:
         module.add(SLongBranchPositive(label, tmpSgprRes, comment=comment))
@@ -174,7 +174,7 @@ def SCLongBranchScc1(label: Label, tmpSgprRes: RegisterPoolResource, \
                      posNeg: int = 0, comment=""):
     module = Module("SCLongBranchScc1 %s"%label.getLabelName())
     noBranchLabel = Label(noBranchLabelStr, "")
-    module.add(SCBranchSCC0(labelName=noBranchLabel.getLabelName(), \
+    module.add(Inst.SCBranchSCC0(labelName=noBranchLabel.getLabelName(), \
                             comment="Only branch on scc1"))
     if posNeg > 0:
         module.add(SLongBranchPositive(label, tmpSgprRes, comment=comment))
@@ -193,39 +193,39 @@ def SBranchIfZero(sgprName, computeDataType: DataType, tmpSgpr, laneSC, label, w
     module = Module("SBranchIfZero")
     sgprStr = "s[{}]".format(sgprName)
     if computeDataType.isDoubleComplex():
-        module.add(VCmpEQF64(dst=sgpr(tmpSgpr, laneSC), src0=sgpr(sgprName, 2), src1=0.0, comment="%s.real == 0.0 ?" % sgprStr))
+        module.add(Inst.VCmpEQF64(dst=sgpr(tmpSgpr, laneSC), src0=sgpr(sgprName, 2), src1=0.0, comment="%s.real == 0.0 ?" % sgprStr))
         sgprVar = "%s+2" % sgprName if isinstance(sgprName, str) else sgprName + 2
-        module.add(VCmpEQF64(dst=VCC(), src0=sgpr(sgprVar, 2), src1=0.0, comment="%s.imag == 0.0 ?" % sgprStr))
+        module.add(Inst.VCmpEQF64(dst=VCC(), src0=sgpr(sgprVar, 2), src1=0.0, comment="%s.imag == 0.0 ?" % sgprStr))
         if waveFrontSize == 32:
-            module.add(SAndB32(dst=sgpr(tmpSgpr, laneSC), src0=VCC(), src1=sgpr(tmpSgpr, laneSC), comment="%s == 0 ?" % sgprStr))
-            module.add(SCmpEQU32(src0=sgpr(tmpSgpr, laneSC), src1=hex(0), comment="branch if %s == 0" % sgprStr))
+            module.add(Inst.SAndB32(dst=sgpr(tmpSgpr, laneSC), src0=VCC(), src1=sgpr(tmpSgpr, laneSC), comment="%s == 0 ?" % sgprStr))
+            module.add(Inst.SCmpEQU32(src0=sgpr(tmpSgpr, laneSC), src1=hex(0), comment="branch if %s == 0" % sgprStr))
         else:
-            module.add(SAndB64(dst=sgpr(tmpSgpr, laneSC), src0=VCC(), src1=sgpr(tmpSgpr, laneSC), comment="%s == 0 ?" % sgprStr))
-            module.add(SCmpEQU64(src0=sgpr(tmpSgpr, laneSC), src1=hex(0), comment="branch if %s == 0" % sgprStr))
-        module.add(SCBranchSCC0(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
+            module.add(Inst.SAndB64(dst=sgpr(tmpSgpr, laneSC), src0=VCC(), src1=sgpr(tmpSgpr, laneSC), comment="%s == 0 ?" % sgprStr))
+            module.add(Inst.SCmpEQU64(src0=sgpr(tmpSgpr, laneSC), src1=hex(0), comment="branch if %s == 0" % sgprStr))
+        module.add(Inst.SCBranchSCC0(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
     elif computeDataType.isDouble():
-        module.add(VCmpEQF64(dst=VCC(), src0=sgpr(sgprName, 2), src1=0.0, comment="%s == 0.0 ?" % sgprStr))
-        module.add(SCBranchVCCNZ(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
+        module.add(Inst.VCmpEQF64(dst=VCC(), src0=sgpr(sgprName, 2), src1=0.0, comment="%s == 0.0 ?" % sgprStr))
+        module.add(Inst.SCBranchVCCNZ(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
     elif computeDataType.isSingleComplex():
-        module.add(VCmpEQF32(dst=sgpr(tmpSgpr, laneSC), src0=sgpr(sgprName), src1=0.0, comment="%s.real == 0.0f ?" % sgprStr))
+        module.add(Inst.VCmpEQF32(dst=sgpr(tmpSgpr, laneSC), src0=sgpr(sgprName), src1=0.0, comment="%s.real == 0.0f ?" % sgprStr))
         sgprVar = "%s+1" % sgprName if isinstance(sgprName, str) else sgprName + 1
-        module.add(VCmpEQF32(dst=VCC(), src0=sgpr(sgprVar), src1=0.0, comment="%s.imag == 0.0f ?" % sgprStr))
+        module.add(Inst.VCmpEQF32(dst=VCC(), src0=sgpr(sgprVar), src1=0.0, comment="%s.imag == 0.0f ?" % sgprStr))
         if waveFrontSize == 32:
-            module.add(SAndB32(dst=sgpr(tmpSgpr, laneSC), src0=VCC(), src1=sgpr(tmpSgpr, laneSC), comment="%s == 0 ?" % sgprStr))
-            module.add(SCmpEQU32(src0=sgpr(tmpSgpr, laneSC), src1=hex(0), comment="branch if %s == 0" % sgprStr))
+            module.add(Inst.SAndB32(dst=sgpr(tmpSgpr, laneSC), src0=VCC(), src1=sgpr(tmpSgpr, laneSC), comment="%s == 0 ?" % sgprStr))
+            module.add(Inst.SCmpEQU32(src0=sgpr(tmpSgpr, laneSC), src1=hex(0), comment="branch if %s == 0" % sgprStr))
         else:
-            module.add(SAndB64(dst=sgpr(tmpSgpr, laneSC), src0=VCC(), src1=sgpr(tmpSgpr, laneSC), comment="%s == 0 ?" % sgprStr))
-            module.add(SCmpEQU64(src0=sgpr(tmpSgpr, laneSC), src1=hex(0), comment="branch if %s == 0" % sgprStr))
-        module.add(SCBranchSCC0(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
+            module.add(Inst.SAndB64(dst=sgpr(tmpSgpr, laneSC), src0=VCC(), src1=sgpr(tmpSgpr, laneSC), comment="%s == 0 ?" % sgprStr))
+            module.add(Inst.SCmpEQU64(src0=sgpr(tmpSgpr, laneSC), src1=hex(0), comment="branch if %s == 0" % sgprStr))
+        module.add(Inst.SCBranchSCC0(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
     elif computeDataType.isSingle() or computeDataType.isHalf() or computeDataType.isBFloat16():
-        module.add(VCmpEQF32(dst=VCC(), src0=sgpr(sgprName), src1=0.0, comment="%s == 0.0f ?" % sgprStr))
-        module.add(SCBranchVCCNZ(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
+        module.add(Inst.VCmpEQF32(dst=VCC(), src0=sgpr(sgprName), src1=0.0, comment="%s == 0.0f ?" % sgprStr))
+        module.add(Inst.SCBranchVCCNZ(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
     elif computeDataType.isInt32(): # int32
-        module.add(SCmpEQU32(src0=sgpr(sgprName), src1=0, comment="%s == 0 ?" % sgprStr))
-        module.add(SCBranchSCC1(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
+        module.add(Inst.SCmpEQU32(src0=sgpr(sgprName), src1=0, comment="%s == 0 ?" % sgprStr))
+        module.add(Inst.SCBranchSCC1(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
     elif computeDataType.isInt64(): # int64
-        module.add(SCmpEQU64(src0=sgpr(sgprName,2), src1=0, comment="%s == 0 ?" % sgprStr))
-        module.add(SCBranchSCC1(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
+        module.add(Inst.SCmpEQU64(src0=sgpr(sgprName,2), src1=0, comment="%s == 0 ?" % sgprStr))
+        module.add(Inst.SCBranchSCC1(labelName=label.getLabelName(), comment="branch if %s == 0" % sgprStr))
     else:
         print("Unsupported compute data type: %s" % str(computeDataType))
         sys.stdout.flush()
@@ -236,29 +236,29 @@ def SBranchIfNotZero(sgprName, computeDataType: DataType, label):
     module = Module("SBranchIfNotZero")
     sgprStr = "s[{}]".format(sgprName)
     if computeDataType.isDoubleComplex():
-        module.add(VCmpEQF64(dst=VCC(), src0=sgpr(sgprName, 2), src1=0.0, comment="%s.real == 0.0 ?" % sgprStr))
-        module.add(SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s.real != 0" % sgprStr))
+        module.add(Inst.VCmpEQF64(dst=VCC(), src0=sgpr(sgprName, 2), src1=0.0, comment="%s.real == 0.0 ?" % sgprStr))
+        module.add(Inst.SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s.real != 0" % sgprStr))
         sgprVar = "%s+2" % sgprName if isinstance(sgprName, str) else sgprName + 2
-        module.add(VCmpEQF64(dst=VCC(), src0=sgpr(sgprVar, 2), src1=0.0, comment="%s.imag == 0.0 ?" % sgprStr))
-        module.add(SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s.imag != 0" % sgprStr))
+        module.add(Inst.VCmpEQF64(dst=VCC(), src0=sgpr(sgprVar, 2), src1=0.0, comment="%s.imag == 0.0 ?" % sgprStr))
+        module.add(Inst.SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s.imag != 0" % sgprStr))
     elif computeDataType.isDouble():
-        module.add(VCmpEQF64(dst=VCC(), src0=sgpr(sgprName, 2), src1=0.0, comment="%s == 0.0 ?" % sgprStr))
-        module.add(SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s != 0" % sgprStr))
+        module.add(Inst.VCmpEQF64(dst=VCC(), src0=sgpr(sgprName, 2), src1=0.0, comment="%s == 0.0 ?" % sgprStr))
+        module.add(Inst.SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s != 0" % sgprStr))
     elif computeDataType.isSingleComplex():
-        module.add(VCmpEQF32(dst=VCC(), src0=sgpr(sgprName), src1=0.0, comment="%s.real == 0.0f ?" % sgprStr))
-        module.add(SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s.real != 0" % sgprStr))
+        module.add(Inst.VCmpEQF32(dst=VCC(), src0=sgpr(sgprName), src1=0.0, comment="%s.real == 0.0f ?" % sgprStr))
+        module.add(Inst.SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s.real != 0" % sgprStr))
         sgprVar = "%s+1" % sgprName if isinstance(sgprName, str) else sgprName + 1
-        module.add(VCmpEQF32(dst=VCC(), src0=sgpr(sgprVar), src1=0.0, comment="%s.imag == 0.0f ?" % sgprStr))
-        module.add(SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s.imag != 0" % sgprStr))
+        module.add(Inst.VCmpEQF32(dst=VCC(), src0=sgpr(sgprVar), src1=0.0, comment="%s.imag == 0.0f ?" % sgprStr))
+        module.add(Inst.SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s.imag != 0" % sgprStr))
     elif computeDataType.isSingle() or computeDataType.isHalf() or computeDataType.isBFloat16():
-        module.add(VCmpEQF32(dst=VCC(), src0=sgpr(sgprName), src1=0.0, comment="%s == 0.0f ?" % sgprStr))
-        module.add(SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s != 0" % sgprStr))
+        module.add(Inst.VCmpEQF32(dst=VCC(), src0=sgpr(sgprName), src1=0.0, comment="%s == 0.0f ?" % sgprStr))
+        module.add(Inst.SCBranchVCCZ(labelName=label.getLabelName(), comment="branch if %s != 0" % sgprStr))
     elif computeDataType.isInt64():
-        module.add(SCmpEQU64(src0=sgpr(sgprName, 2), src1=0, comment="%s == 0 ?" % sgprStr))
-        module.add(SCBranchSCC0(labelName=label.getLabelName(), comment="branch if %s != 0" % sgprStr))
+        module.add(Inst.SCmpEQU64(src0=sgpr(sgprName, 2), src1=0, comment="%s == 0 ?" % sgprStr))
+        module.add(Inst.SCBranchSCC0(labelName=label.getLabelName(), comment="branch if %s != 0" % sgprStr))
     else:
-        module.add(SCmpEQU32(src0=sgpr(sgprName), src1=0, comment="%s == 0 ?" % sgprStr))
-        module.add(SCBranchSCC0(labelName=label.getLabelName(), comment="branch if %s != 0" % sgprStr))
+        module.add(Inst.SCmpEQU32(src0=sgpr(sgprName), src1=0, comment="%s == 0 ?" % sgprStr))
+        module.add(Inst.SCBranchSCC0(labelName=label.getLabelName(), comment="branch if %s != 0" % sgprStr))
     return module
 
 # Perform 32-bit scalar mul and save 64-bit result in two SGPR
@@ -268,14 +268,13 @@ def SBranchIfNotZero(sgprName, computeDataType: DataType, label):
 # Requires 2 tmp vgprs
 def SMulInt64to32(hasSMulHi, dst0, dst1, src0, src1, signed, vtmp0, comment):
     module = Module("SMulInt64to32")
-    sign = "i" if signed else "u"
     assert(dst1 != src0) # no worky since dst1 overwritten by first mul operations
     assert(dst1 != src1) # no worky since dst1 overwritten by first mul operations
     # the else path below has less restrictions but prefer consistency
     if hasSMulHi:
-        SInst = SMulHII32 if signed else SMulHIU32
+        SInst = Inst.SMulHII32 if signed else Inst.SMulHIU32
         module.add(SInst(dst=dst1, src0=src0, src1=src1, comment=comment))
-        module.add(SMulI32(dst=dst0, src0=src0, src1=src1, comment=comment))
+        module.add(Inst.SMulI32(dst=dst0, src0=src0, src1=src1, comment=comment))
     else:
         if (not isinstance(src1, RegisterContainer)) or (src1.regType != "s"):
             # Swap operands, need a scalar sgpr in src1 (not a constant)
@@ -283,12 +282,12 @@ def SMulInt64to32(hasSMulHi, dst0, dst1, src0, src1, signed, vtmp0, comment):
             src0 = src1
             src1 = t
         vtmp1 = vtmp0+1
-        module.add(VMovB32(dst=vgpr(vtmp0), src=src0, comment=comment))
-        VInst = VMulHII32 if signed else VMulHIU32
+        module.add(Inst.VMovB32(dst=vgpr(vtmp0), src=src0, comment=comment))
+        VInst = Inst.VMulHII32 if signed else Inst.VMulHIU32
         module.add(VInst(dst=vgpr(vtmp1), src0=vgpr(vtmp0), src1=src1, comment=comment))
-        module.add(VReadfirstlaneB32(dst=dst1, src=vgpr(vtmp1), comment=comment))
-        module.add(VMulLOU32(dst=vgpr(vtmp1), src0=vgpr(vtmp0), src1=src1, comment=comment))
-        module.add(VReadfirstlaneB32(dst=dst0, src=vgpr(vtmp1), comment=comment))
+        module.add(Inst.VReadfirstlaneB32(dst=dst1, src=vgpr(vtmp1), comment=comment))
+        module.add(Inst.VMulLOU32(dst=vgpr(vtmp1), src0=vgpr(vtmp0), src1=src1, comment=comment))
+        module.add(Inst.VReadfirstlaneB32(dst=dst0, src=vgpr(vtmp1), comment=comment))
     return module
 
 ########################################
@@ -314,15 +313,15 @@ def VSaturateCastInt(vgprSumIdxV, tmpVgpr, tmpSgpr, lowerBound, upperBound, type
         if initGpr:
             lowerBoundHex = hex(lowerBound)
             upperBoundHex = hex(upperBound)
-            module.add(SMovkI32(dst=sgpr(tmpLowerBound), src=lowerBoundHex, comment="%d"%lowerBound ))
-            module.add(VMovB32(dst=vgpr(tmpUpperBound), src=upperBoundHex, comment="%d"%upperBound ))
-        module.add(VMed3I32(dst=vgprSumIdxV, src0=vgprSumIdxV, src1=sgpr(tmpLowerBound), src2=vgpr(tmpUpperBound), comment="x= min(%d, max(%d, x))"%(upperBound, lowerBound)))
+            module.add(Inst.SMovkI32(dst=sgpr(tmpLowerBound), src=lowerBoundHex, comment="%d"%lowerBound ))
+            module.add(Inst.VMovB32(dst=vgpr(tmpUpperBound), src=upperBoundHex, comment="%d"%upperBound ))
+        module.add(Inst.VMed3I32(dst=vgprSumIdxV, src0=vgprSumIdxV, src1=sgpr(tmpLowerBound), src2=vgpr(tmpUpperBound), comment="x= min(%d, max(%d, x))"%(upperBound, lowerBound)))
     elif type == SaturateCastType.DO_NOTHING:
         pass
     elif type == SaturateCastType.UPPER:
-        module.add(VMinI32(dst=vgprSumIdxV, src0=upperBound, src1=vgprSumIdxV, comment="x = min(%d, x)"%upperBound))
+        module.add(Inst.VMinI32(dst=vgprSumIdxV, src0=upperBound, src1=vgprSumIdxV, comment="x = min(%d, x)"%upperBound))
     elif type == SaturateCastType.LOWER:
-        module.add(VMaxI32(dst=vgprSumIdxV, src0=lowerBound, src1=vgprSumIdxV, comment="x = max(%d, x)"%lowerBound))
+        module.add(Inst.VMaxI32(dst=vgprSumIdxV, src0=lowerBound, src1=vgprSumIdxV, comment="x = max(%d, x)"%lowerBound))
     return module
 
 ########################################
@@ -331,9 +330,9 @@ def VSaturateCastInt(vgprSumIdxV, tmpVgpr, tmpSgpr, lowerBound, upperBound, type
 
 def VCvtBF16toFP32(dst, src, vgprMask, vi, additionalCmts=""):
     if (vi % 2) == 1:
-        return VAndB32(dst=vgpr(dst), src0=vgpr(src), src1=vgpr(vgprMask), comment="cvt bf16 to fp32. " + additionalCmts) # mask = hex(0xffff0000)
+        return Inst.VAndB32(dst=vgpr(dst), src0=vgpr(src), src1=vgpr(vgprMask), comment="cvt bf16 to fp32. " + additionalCmts) # mask = hex(0xffff0000)
     else:
-        return VLShiftLeftB32(dst=vgpr(dst), shiftHex=16, src=vgpr(src), comment="cvt bf16 to fp32. " + additionalCmts)
+        return Inst.VLShiftLeftB32(dst=vgpr(dst), shiftHex=16, src=vgpr(src), comment="cvt bf16 to fp32. " + additionalCmts)
 
 ########################################
 # init lds state
@@ -345,17 +344,17 @@ def DSInit(tmpVgprRes: RegisterPoolResource, numThreads: int, \
     tmpAddr = tmp + 1
     module = Module("initLds")
     module.addComment1("init lds state")
-    module.add(SWaitCnt(lgkmcnt=0, vmcnt=0, vscnt=0, comment=""))
-    module.add(SBarrier(comment="init LDS"))
-    module.add(VMovB32(dst=vgpr(tmp), src=hex(initValue), comment="Init value"))
-    module.add(VLShiftLeftB32(dst=vgpr(tmpAddr), shiftHex=2, src=vgpr("Serial"), \
+    module.add(Inst.SWaitCnt(lgkmcnt=0, vmcnt=0, vscnt=0, comment=""))
+    module.add(Inst.SBarrier(comment="init LDS"))
+    module.add(Inst.VMovB32(dst=vgpr(tmp), src=hex(initValue), comment="Init value"))
+    module.add(Inst.VLShiftLeftB32(dst=vgpr(tmpAddr), shiftHex=2, src=vgpr("Serial"), \
                 comment="set per-thread address to init LDS"))
     writesPerThread = ((ldsNumElements-1)//numThreads//4) + 1
     for i in range(0, writesPerThread):
-        module.add(DSStoreB32(dstAddr=vgpr(tmpAddr), src=vgpr(tmp),
+        module.add(Inst.DSStoreB32(dstAddr=vgpr(tmpAddr), src=vgpr(tmp),
                     ds=DSModifiers(offset=(i*numThreads*4)), comment="init lds"))
-    module.add(SWaitCnt(lgkmcnt=0, vmcnt=0, vscnt=0, comment="wait for LDS init to complete"))
-    module.add(SBarrier(comment="init LDS exit"))
+    module.add(Inst.SWaitCnt(lgkmcnt=0, vmcnt=0, vscnt=0, comment="wait for LDS init to complete"))
+    module.add(Inst.SBarrier(comment="init LDS exit"))
     return module
 
 ################################################################################
@@ -390,15 +389,15 @@ class ArgumentLoader:
     # unused parms
     ##############################################################################
     def loadKernArg(self, dst: Union[int, str], srcAddr: Union[int, str], sgprOffset = None, dword=1,\
-                        writeSgpr=True) -> Union[Instruction, TextBlock]:
+                        writeSgpr=True) -> Union[Inst.Instruction, TextBlock]:
         item = None
         size = dword*4
         if writeSgpr:
-            SLoadBX = { 512: SLoadB512,
-                        256: SLoadB256,
-                        128: SLoadB128,
-                        64:  SLoadB64,
-                        32:  SLoadB32
+            SLoadBX = { 512: Inst.SLoadB512,
+                        256: Inst.SLoadB256,
+                        128: Inst.SLoadB128,
+                        64:  Inst.SLoadB64,
+                        32:  Inst.SLoadB32
                     }[dword * 32]
             item = SLoadBX(dst=sgpr(dst, dword), base=sgpr(srcAddr, 2), soffset=hex(self.kernArgOffset) if sgprOffset == None else sgprOffset )
         else:
@@ -425,11 +424,11 @@ class ArgumentLoader:
 
                 if isSgprAligned and actualLoad >= i:
                     actualLoad -= i
-                    SLoadBX = { 512: SLoadB512,
-                                256: SLoadB256,
-                                128: SLoadB128,
-                                64:  SLoadB64,
-                                32:  SLoadB32
+                    SLoadBX = { 512: Inst.SLoadB512,
+                                256: Inst.SLoadB256,
+                                128: Inst.SLoadB128,
+                                64:  Inst.SLoadB64,
+                                32:  Inst.SLoadB32
                             }[i * 32]
                     module.add(SLoadBX(dst=sgpr(sgprStartIndex, i), base=sgpr(srcAddr, 2), soffset=hex(self.kernArgOffset)))
                     sgprStartIndex += i
@@ -461,14 +460,14 @@ def bomb(scratchVgpr, cookie=None):
             module.add(Label("bomb_neg%u" % abs(cookie), ""))
         else:
             module.add(Label("bomb_%u" % abs(cookie), ""))
-    module.add(VMovB32(dst=vgpr(vgprAddr+0), src=0))
-    module.add(VMovB32(dst=vgpr(vgprAddr+1), src=0))
-    module.add(FlatLoadB32(dst=vgpr(vgprAddr), vaddr=vgpr(vgprAddr,2), comment="bomb - force fault" ))
+    module.add(Inst.VMovB32(dst=vgpr(vgprAddr+0), src=0))
+    module.add(Inst.VMovB32(dst=vgpr(vgprAddr+1), src=0))
+    module.add(Inst.FlatLoadB32(dst=vgpr(vgprAddr), vaddr=vgpr(vgprAddr,2), comment="bomb - force fault" ))
 
     # This move does not execute but appears in the instruction stream immediately following
     # the faulting load:
     if cookie != None:
-        module.add(SMovB32(dst=sgpr(0), src=cookie, comment="bomb cookie=%d(0x%x)"%(cookie,cookie&0xffffffff)))
+        module.add(Inst.SMovB32(dst=sgpr(0), src=cookie, comment="bomb cookie=%d(0x%x)"%(cookie,cookie&0xffffffff)))
 
     return module
 
@@ -496,10 +495,10 @@ class Assert():
     # assertCmpCommon : Common routine for all assert comparison functions
     ##############################################################################
     def assertCmpCommon(self, inst, val0, val1, vtmp, cookie=-1):
-        assert issubclass(inst, VCmpXInstruction)
+        assert issubclass(inst, Inst.VCmpXInstruction)
         module = Module("assertCmpCommon")
         if self.enableAsserts:
-            SOrSaveExecBX = SOrSaveExecB64 if self.wavefrontSize == 64 else SOrSaveExecB32
+            SOrSaveExecBX = Inst.SOrSaveExecB64 if self.wavefrontSize == 64 else Inst.SOrSaveExecB32
             module.add(SOrSaveExecBX(dst=sgpr("SaveExecMask",self.laneSGPRCount), src=0, \
                 comment="assert: saved execmask"))
             module.add(inst(dst=VCC(), src0=val0, src1=val1, comment="v_cmp")) # type: ignore
@@ -514,35 +513,35 @@ class Assert():
     # Asserts currently modify vcc
     ##############################################################################
     def eq(self, val0, val1, vtmp, cookie=-1):
-        return self.assertCmpCommon(VCmpXNeU32, val0, val1, vtmp, cookie)
+        return self.assertCmpCommon(Inst.VCmpXNeU32, val0, val1, vtmp, cookie)
 
     def eq_u16(self, val0, val1, vtmp, cookie=-1):
-        return self.assertCmpCommon(VCmpXNeU16, val0, val1, vtmp, cookie)
+        return self.assertCmpCommon(Inst.VCmpXNeU16, val0, val1, vtmp, cookie)
 
     def ne(self, val0, val1, vtmp, cookie=-1):
-        return self.assertCmpCommon(VCmpXEqU32, val0, val1, vtmp, cookie)
+        return self.assertCmpCommon(Inst.VCmpXEqU32, val0, val1, vtmp, cookie)
 
     def lt_u32(self, val0, val1, vtmp, cookie=-1):
-        return self.assertCmpCommon(VCmpXGeU32, val0, val1, vtmp, cookie)
+        return self.assertCmpCommon(Inst.VCmpXGeU32, val0, val1, vtmp, cookie)
 
     def gt_u32(self, val0, val1, vtmp, cookie=-1):
-        return self.assertCmpCommon(VCmpXLeU32, val0, val1, vtmp, cookie)
+        return self.assertCmpCommon(Inst.VCmpXLeU32, val0, val1, vtmp, cookie)
 
     def le_u32(self, val0, val1, vtmp, cookie=-1):
-        return self.assertCmpCommon(VCmpXGtU32, val0, val1, vtmp, cookie)
+        return self.assertCmpCommon(Inst.VCmpXGtU32, val0, val1, vtmp, cookie)
 
     def ge_u32(self, val0, val1, vtmp, cookie=-1):
-        return self.assertCmpCommon(VCmpXLtU32, val0, val1, vtmp, cookie)
+        return self.assertCmpCommon(Inst.VCmpXLtU32, val0, val1, vtmp, cookie)
 
     def ge_i32(self, val0, val1, vtmp, cookie=-1):
-        return self.assertCmpCommon(VCmpXLtI32, val0, val1, vtmp, cookie)
+        return self.assertCmpCommon(Inst.VCmpXLtI32, val0, val1, vtmp, cookie)
 
     # can left shift w/o losing non-zero bits:
     def no_shift_of(self, val0, shift, stmp, vtmp, cookie=-1):
         module = Module("Assert no shift of")
         # TODO - use BFE here:
-        module.add(SMovB32(dst=stmp, src=hex((shift-1) << (32-log2(shift))), comment="assert_no_shift_of - compute mask"))
-        module.add(SAndB32(dst=stmp, src0=stmp, src1=val0, comment="assert_no_shift_of"))
+        module.add(Inst.SMovB32(dst=stmp, src=hex((shift-1) << (32-log2(shift))), comment="assert_no_shift_of - compute mask"))
+        module.add(Inst.SAndB32(dst=stmp, src0=stmp, src1=val0, comment="assert_no_shift_of"))
         module.add(self.eq(stmp, 0, vtmp, cookie))
         return module
 
@@ -554,21 +553,21 @@ class Assert():
         if self.enableAsserts:
 
             stmp = sgpr("SaveExecMask") # repurpose to get a tmp sgpr
-            SAndBX = SAndB64 if self.wavefrontSize else SAndB32
+            SAndBX = Inst.SAndB64 if self.wavefrontSize else Inst.SAndB32
             module.add(SAndBX(dst=stmp, src0=sval, src1=multiple2-1, comment="mask" ))
-            module.add(SCmpEQU32(src0=stmp, src1=0, comment="if maskedBits==0 then SCC=1 == no fault" ))
-            SMovBX = SMovB64 if self.wavefrontSize else SMovB32
+            module.add(Inst.SCmpEQU32(src0=stmp, src1=0, comment="if maskedBits==0 then SCC=1 == no fault" ))
+            SMovBX = Inst.SMovB64 if self.wavefrontSize else Inst.SMovB32
             module.add(SMovBX(dst=sgpr("SaveExecMask",self.laneSGPRCount), src=-1))
-            SCMovBX= SCMovB64 if self.wavefrontSize else SCMovB32
+            SCMovBX= Inst.SCMovB64 if self.wavefrontSize else Inst.SCMovB32
             module.add(SCMovBX(dst=sgpr("SaveExecMask", self.laneSGPRCount),  src=0, comment="Clear exec mask"))
 
-            SAndSaveExecBX = SAndSaveExecB64 if self.wavefrontSize else SAndSaveExecB32
+            SAndSaveExecBX = Inst.SAndSaveExecB64 if self.wavefrontSize else Inst.SAndSaveExecB32
             module.add(SAndSaveExecBX(dst=sgpr("SaveExecMask",self.laneSGPRCount), src=sgpr("SaveExecMask",self.laneSGPRCount), \
                 comment="assert: saved execmask"))
 
             module.add(self.assertCommon(vtmp, cookie))
 
-            SOrSaveExecBX = SOrSaveExecB64 if self.wavefrontSize else SOrSaveExecB32
+            SOrSaveExecBX = Inst.SOrSaveExecB64 if self.wavefrontSize else Inst.SOrSaveExecB32
             module.add(SOrSaveExecBX(dst=VCC(), src=sgpr("SaveExecMask",self.laneSGPRCount), \
                 comment="assert: restore execmask"))
 
@@ -578,7 +577,7 @@ class Assert():
     # Verify that each element in v1 is scalar offset from v0
     def assert_vector_diff(self, v0, v1, expectedScalarDiff, cmpvtmp, vtmp, cookie=-1):
         module = Module("assert_vector_diff")
-        module.add(VAddCOU32(dst=vgpr(cmpvtmp), \
+        module.add(Inst.VAddCOU32(dst=vgpr(cmpvtmp), \
                        dst1=VCC(), \
                        src0=expectedScalarDiff, \
                        src1=v0, \
@@ -605,15 +604,15 @@ class Dump:
             if self.maxItem != -1:
                 afterDump = labelName
                 afterDump = Label(afterDump, "skip debug target")
-                module.add(SCmpLtU32(src0=sgpr(self.sgprDebugKernelItems), src1=16))
-                module.add(SCBranchSCC0(labelName=afterDump.getLabelName(), \
+                module.add(Inst.SCmpLtU32(src0=sgpr(self.sgprDebugKernelItems), src1=16))
+                module.add(Inst.SCBranchSCC0(labelName=afterDump.getLabelName(), \
                         comment="skip if already wrote enough work-items" ))
-                module.add(SAddU32(dst=sgpr(self.sgprDebugKernelItems), \
+                module.add(Inst.SAddU32(dst=sgpr(self.sgprDebugKernelItems), \
                         src0=sgpr(self.sgprDebugKernelItems), src1=hex(1), \
                         comment="inc items written" ))
 
-            module.add(FlatStoreB32(vaddr=vgpr(self.vgprAddressDbg, 2), src=vgprStore, comment="debug dump store"))
-            module.add(VAddCOU32(dst=vgpr(self.vgprAddressDbg), dst1=VCC(), src0=vgpr(self.vgprAddressDbg), src1=hex(4), comment="debug dump inc"))
+            module.add(Inst.FlatStoreB32(vaddr=vgpr(self.vgprAddressDbg, 2), src=vgprStore, comment="debug dump store"))
+            module.add(Inst.VAddCOU32(dst=vgpr(self.vgprAddressDbg), dst1=VCC(), src0=vgpr(self.vgprAddressDbg), src1=hex(4), comment="debug dump inc"))
 
             if self.maxItem != -1:
                 assert(isinstance(afterDump, Label)) # Dummy guard in case someone remove the if above
@@ -629,17 +628,17 @@ class Dump:
             tmp     = tmpVgprRes.idx
             tmpAddr = tmp + 1
             module.addComment1("dump lds state")
-            module.add(SWaitCnt(lgkmcnt=0, vmcnt=0, vscnt=0, comment=""))
-            module.add(SBarrier(comment="dump LDS"))
-            module.add(VLShiftLeftB32(
+            module.add(Inst.SWaitCnt(lgkmcnt=0, vmcnt=0, vscnt=0, comment=""))
+            module.add(Inst.SBarrier(comment="dump LDS"))
+            module.add(Inst.VLShiftLeftB32(
                 dst=vgpr(tmpAddr), \
                 shiftHex=hex(bpeAB), \
                 src=vgpr("Serial"), \
                 comment="dump lds"))
             for i in range(startU, startU+numU):
-                module.add(DSLoadB32(dst=vgpr(tmp), src=vgpr(tmpAddr),
+                module.add(Inst.DSLoadB32(dst=vgpr(tmp), src=vgpr(tmpAddr),
                         ds=DSModifiers(offset=(i*numThreads*4)), comment="dump lds"))
-                module.add(SWaitCnt(lgkmcnt=0, vmcnt=0, vscnt=0, comment="dump"))
+                module.add(Inst.SWaitCnt(lgkmcnt=0, vmcnt=0, vscnt=0, comment="dump"))
                 module.add(self.dumpVgpr(tmp, labelName))
         return module
 
@@ -649,6 +648,6 @@ class Dump:
         if self.enableDump:
             assert tmpVgprRes.size > 0
             tmp = tmpVgprRes.idx
-            module.add(VMovB32(dst=vgpr(tmp), src=sgprStore, comment="debug dump sgpr store"))
+            module.add(Inst.VMovB32(dst=vgpr(tmp), src=sgprStore, comment="debug dump sgpr store"))
             module.add(self.dumpVgpr(tmp, labelName))
         return module

@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2016-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2016-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -80,11 +80,6 @@ def apply_print_exception(item, *args):
   finally:
     sys.stdout.flush()
     sys.stderr.flush()
-
-def OverwriteGlobalParameters(newGlobalParameters):
-  from . import Common
-  Common.globalParameters.clear()
-  Common.globalParameters.update(newGlobalParameters)
 
 def ProcessingPool(enable=True, maxTasksPerChild=None):
   import multiprocessing
