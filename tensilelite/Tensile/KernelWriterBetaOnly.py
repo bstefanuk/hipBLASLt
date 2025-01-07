@@ -25,7 +25,7 @@
 from copy import deepcopy
 
 from .Common import globalParameters
-from .TensileInstructions import DataType
+from .TensileInstructions.Utils import DataType
 from .KernelWriterBase import KernelWriterBase
 
 class KernelWriterBetaOnly(KernelWriterBase):

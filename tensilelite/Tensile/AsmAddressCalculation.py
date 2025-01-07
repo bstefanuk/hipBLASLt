@@ -24,7 +24,7 @@ from .TensileInstructions import Instructions as ti
 from .TensileInstructions.Utils import vgpr, sgpr, log2
 from .TensileInstructions.Code import Module
 from .TensileInstructions.Containers import EXEC, VCC
-from .Common import globalParameters, printExit
+from .Common import printExit
 from .Utils import DataDirection
 
 ##############################################################################
@@ -181,64 +181,66 @@ class AddrCalculation:
     # storeChar is 'C' or 'D'
     # elementVgpr is coord0Vgpr*strideCD0, or optimized to just coord0Vgpr if strideCD0 is unit const
     def emitExtractAndScalePackedDims(self, kernel, ss, tmpVgpr, storeChar):
-        module = Module("emitExtractAndScalePackedDims")
-        kw = self.kernelWriter
-        packedIndices = kernel["PackedC0IndicesX"]
-        packedBits = self.coord0Vgpr # start with coord0, will move to temp below
-        rowPtr = self.getRowPtr(kw, storeChar)
-        addrVgpr = self.getAddrVgpr(kw, storeChar)
-        bpe = kw.states.bpeCinternal if (tc == 'Bias') else (kw.states.bpeE if (tc == 'E') else kw.states.bpeCexternal)
+        raise RuntimeError("This method is no supported because of an undefined variable `tc`. This is an error in tensilelite, please file a bug in hipBLASLt.")
+        # module = Module("emitExtractAndScalePackedDims")
+        # kw = self.kernelWriter
+        # packedIndices = kernel["PackedC0IndicesX"]
+        # packedBits = self.coord0Vgpr # start with coord0, will move to temp below
+        # rowPtr = self.getRowPtr(kw, storeChar)
+        # addrVgpr = self.getAddrVgpr(kw, storeChar)
 
-        for i,idx in enumerate(packedIndices[:-1]):
-            # vgprTmp assignments:
-            #   - tmp+0 may be the incoming packed coordinate 0, used on replay too
-            #   - tmp+1 is DIV output
-            #   - tmp+2 is scratch
-            idxChar= globalParameters["IndexChars"][idx]
-            module.addComment0("extract %s"%kw.sizeRef(idx))
-            assert(tmpVgpr+1 != packedBits) # bad since we still need packedBits below for remainder (can't overwrite here)
-            module.add(ti.MacroInstruction("V_MAGIC_DIV", \
-                           args=[tmpVgpr+1, vgpr(packedBits), sgpr("MagicNumberSize%s"%idxChar), \
-                           sgpr("MagicShiftSize%s"%idxChar), sgpr("MagicAbitSize%s"%idxChar) if kernel["MagicDivAlg"]==2 else "0"]))
-            # tmpVgpr+1 returns the quotient, tmpVgpr+2 is overwritten
+        # bpe = kw.states.bpeCinternal if (tc == 'Bias') else (kw.states.bpeE if (tc == 'E') else kw.states.bpeCexternal)
 
-            # compute remainder, packedBits % sizeIdx - this is the 'extracted' index that must be scaled
-            # remainder is mul and sub
-            module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr+2), src0=vgpr(tmpVgpr+1), src1=kw.sizeRef(idx), \
-                           comment="remainder part 1"))
-            module.add(ti.VSubU32(dst=vgpr(tmpVgpr+2), src0=vgpr(packedBits), src1=vgpr(tmpVgpr+2),
-                           comment="remainder part 2"))
+        # for i,idx in enumerate(packedIndices[:-1]):
+        #     # vgprTmp assignments:
+        #     #   - tmp+0 may be the incoming packed coordinate 0, used on replay too
+        #     #   - tmp+1 is DIV output
+        #     #   - tmp+2 is scratch
+        #     idxChar= globalParameters["IndexChars"][idx]
+        #     module.addComment0("extract %s"%kw.sizeRef(idx))
+        #     assert(tmpVgpr+1 != packedBits) # bad since we still need packedBits below for remainder (can't overwrite here)
+        #     module.add(ti.MacroInstruction("V_MAGIC_DIV", \
+        #                    args=[tmpVgpr+1, vgpr(packedBits), sgpr("MagicNumberSize%s"%idxChar), \
+        #                    sgpr("MagicShiftSize%s"%idxChar), sgpr("MagicAbitSize%s"%idxChar) if kernel["MagicDivAlg"]==2 else "0"]))
+        #     # tmpVgpr+1 returns the quotient, tmpVgpr+2 is overwritten
 
-            if i==0:
-                module.add(ti.VMulLOU32(dst=vgpr(addrVgpr), src0=vgpr(tmpVgpr+2), \
-                          src1=kw.strideRef(storeChar, idx), comment="addrCalc <- scaled extracted dim"))
-            else:
-                module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr+2), src0=vgpr(tmpVgpr+2), \
-                          src1=kw.strideRef(storeChar, idx), comment="scale extracted dim"))
-                module.add(ti.VAddU32(dst=vgpr(addrVgpr), src0=vgpr(addrVgpr), \
-                          src1=vgpr(tmpVgpr+2), comment="addrCalc += scaled extracted dim "))
+        #     # compute remainder, packedBits % sizeIdx - this is the 'extracted' index that must be scaled
+        #     # remainder is mul and sub
+        #     module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr+2), src0=vgpr(tmpVgpr+1), src1=kw.sizeRef(idx), \
+        #                    comment="remainder part 1"))
+        #     module.add(ti.VSubU32(dst=vgpr(tmpVgpr+2), src0=vgpr(packedBits), src1=vgpr(tmpVgpr+2),
+        #                    comment="remainder part 2"))
 
-            if i < len(packedIndices)-2:
-                # TODO - might be able to eliminate this
-                module.add(ti.VMovB32(dst=vgpr(tmpVgpr+0), src=vgpr(tmpVgpr+1), \
-                          comment="Copy remaining bits for next divide"))
-                packedBits = tmpVgpr+0
+        #     if i==0:
+        #         module.add(ti.VMulLOU32(dst=vgpr(addrVgpr), src0=vgpr(tmpVgpr+2), \
+        #                   src1=kw.strideRef(storeChar, idx), comment="addrCalc <- scaled extracted dim"))
+        #     else:
+        #         module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr+2), src0=vgpr(tmpVgpr+2), \
+        #                   src1=kw.strideRef(storeChar, idx), comment="scale extracted dim"))
+        #         module.add(ti.VAddU32(dst=vgpr(addrVgpr), src0=vgpr(addrVgpr), \
+        #                   src1=vgpr(tmpVgpr+2), comment="addrCalc += scaled extracted dim "))
 
-        if len(packedIndices)>1:
-            # if we unpacked something, then scale it to BPE
-            module.addComment0("extract final %s"%kw.sizeRef(packedIndices[-1]))
-            module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr+2), src0=vgpr(tmpVgpr+1), \
-                      src1=kw.strideRef(storeChar, packedIndices[-1]), comment="scale final extracted dim"))
-            module.add(ti.VAddU32(dst=vgpr(addrVgpr), src0=vgpr(addrVgpr), \
-                      src1=vgpr(tmpVgpr+2), comment="addrCalc += scaled extracted dim "))
+        #     if i < len(packedIndices)-2:
+        #         # TODO - might be able to eliminate this
+        #         module.add(ti.VMovB32(dst=vgpr(tmpVgpr+0), src=vgpr(tmpVgpr+1), \
+        #                   comment="Copy remaining bits for next divide"))
+        #         packedBits = tmpVgpr+0
 
-            module.add(ti.VAddLShiftLeftU32(dst=vgpr(addrVgpr), \
-                      src0=vgpr(rowPtr), \
-                      src1=vgpr(addrVgpr), \
-                      shiftHex=hex(log2(bpe)), \
-                      comment="packed: add rowPtr and scaleToBpe"))
+        # if len(packedIndices)>1:
+        #     # if we unpacked something, then scale it to BPE
+        #     module.addComment0("extract final %s"%kw.sizeRef(packedIndices[-1]))
+        #     module.add(ti.VMulLOU32(dst=vgpr(tmpVgpr+2), src0=vgpr(tmpVgpr+1), \
+        #               src1=kw.strideRef(storeChar, packedIndices[-1]), comment="scale final extracted dim"))
+        #     module.add(ti.VAddU32(dst=vgpr(addrVgpr), src0=vgpr(addrVgpr), \
+        #               src1=vgpr(tmpVgpr+2), comment="addrCalc += scaled extracted dim "))
 
-        return module
+        #     module.add(ti.VAddLShiftLeftU32(dst=vgpr(addrVgpr), \
+        #               src0=vgpr(rowPtr), \
+        #               src1=vgpr(addrVgpr), \
+        #               shiftHex=hex(log2(bpe)), \
+        #               comment="packed: add rowPtr and scaleToBpe"))
+
+        # return module
 
     def emitScaleToBpe(self, kernel, ss, tmpVgpr, tmpSgpr, singleUpdate, tc, dim):
         """
@@ -591,7 +593,7 @@ class AddrCalculation:
                 else: # just a group index
                     params.append("sgprWorkGroup%u"%i)
             params.append("%s" % (tmpVgpr+2))
-            module.add(MacroInstruction(name="GLOBAL_OFFSET_C", args=params))
+            module.add(ti.MacroInstruction(name="GLOBAL_OFFSET_C", args=params))
             module.add(ti.VMovB32(dst=vgpr(tmpVgpr+2), src=vgpr(addrVgpr+0), comment="temp store offset 0"))
             module.add(ti.VMovB32(dst=vgpr(tmpVgpr+3), src=vgpr(addrVgpr+1), comment="temp store offset 1"))
 

@@ -26,10 +26,10 @@ from ..TensileInstructions.Math import vectorStaticDivide
 from ..TensileInstructions.Code import RegSet, Label, Module
 from ..TensileInstructions.Containers import DSModifiers
 from ..TensileInstructions.RegisterPool import RegisterPoolResource
+from ..KernelWriterModules import accToArchMapper
 from ..Component import Component
 from ..AsmStoreState import StoreState, VectorDataTypes
 from ..Utils import DataDirection
-#import abc
 
 class LSU(Component):
     """
@@ -62,10 +62,10 @@ class LSUOn(LSU):
         self.LSUelemCoord0, self.LSUelemCoord1 = ss.getStoreElementsInfoForBatch(kernel, self.LSUelements)
 
         # search for valid lsu wave offset
-        maxtt1 = 0
-        maxtt0 = 0
-        maxvc1 = 0
-        maxvc0 = 0
+        # maxtt1 = 0
+        # maxtt0 = 0
+        # maxvc1 = 0
+        # maxvc0 = 0# TODO (unused - all)
         validOffset  = -1
         validOffset0 = -1
         validOffset1 = -1
@@ -139,11 +139,11 @@ class LSUOn(LSU):
         module.add(writer._syncThreads(kernel))
         module.add(Label("localSplitULocalWriteAndRead", ""))
 
-        acc2arch, arch2acc = accToArchMapper(kernel)
+        _, arch2acc = accToArchMapper(kernel)
 
         # prepare the data that is to be Reduction in this wave
         # the output LSUelementsArchIdx has all arch-indices.
-        validOffset = self.splitOutputData(writer, kernel)
+        # validOffset = self.splitOutputData(writer, kernel)# TODO (unused)
 
         numAccIdx    = len(self.LSUelementsArchIdx[0])
         numSetAccIdx = ceilDivide(numAccIdx, kernel["LocalSplitUReuseLDS"])

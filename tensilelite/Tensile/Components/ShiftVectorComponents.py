@@ -25,11 +25,11 @@
 from ..TensileInstructions import Instructions as ti
 from ..TensileInstructions import Math as mathti
 from ..TensileInstructions.Code import Label, Module
-from ..TensileInstructions.Containers import VCC
+from ..TensileInstructions.Containers import VCC, DSModifiers
 from ..TensileInstructions.RegisterPool import RegisterPoolResource
 from ..TensileInstructions.Utils import vgpr, sgpr, log2
 from ..Component import ShiftVectorComponents
-# from ..KernelWriterModules import
+from ..KernelWriterModules import accToArchMapper, accVgprImagNumOffset
 
 class ShiftVectorComponentsMFMA(ShiftVectorComponents):
     kernel = {"EnableMatrixInstruction": True}
@@ -302,7 +302,7 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                                             for e in range(min(r, allContOutCoal)):
                                                 crossThread = (e+(glvw-r)) // allContOutCoal
                                                 if crossThread != 0:
-                                                    ds = Dti.SModifiers(na=1, offset=crossThread*threadInterval*4)
+                                                    ds = DSModifiers(na=1, offset=crossThread*threadInterval*4)
                                                     module.add(ti.DSBPermuteB32(dst=vgpr(tReg+e), src0=vgpr(tmpVgpr), src1=vgpr(tReg+e), ds=ds, comment="permute edge values"))
                                                     needWait = True
 
@@ -525,7 +525,7 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                                             permuteOffset = (((srcThreadId - dstThreadId) * threadInterval) % kernel["WavefrontSize"]) * 4
                                             for ot in range(numOutputsPrep):
                                                 movRegId    = movReg + dstContId + ot * numContOutCoal
-                                                ds = Dti.SModifiers(na=1, offset=permuteOffset)
+                                                ds = DSModifiers(na=1, offset=permuteOffset)
                                                 module.add(ti.DSBPermuteB32(dst=vgpr(movRegId), src0=vgpr(permuteIndexReg), src1=vgpr(movRegId), ds=ds, comment="permute edge values"))
 
                                 if needWait:

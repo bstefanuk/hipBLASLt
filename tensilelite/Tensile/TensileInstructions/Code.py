@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -23,7 +23,7 @@
 from .Base import Item, getGfxName
 from .Enums import SignatureValueKind
 from .Formatting import slash, slash50, block, block3Line, blockNewLine, \
-                        formatStr, printExit
+                        formatStr
 from .Instructions import Instruction, MacroInstruction
 
 from math import ceil
@@ -693,7 +693,7 @@ class _SignatureKernelDescriptor(Item):
 
     def getNextFreeVgpr(self) -> int:
         return self.totalVgprs
-    
+
     def getNextFreeSgpr(self) -> int:
         return self.totalSgprs
 
@@ -898,7 +898,7 @@ class KernelBody(Item):
         self.totalSgprs = totalSgprs
         self.signature.setGprs(totalVgprs=totalVgprs, totalAgprs=totalAgprs, \
             totalSgprs=totalSgprs)
-        
+
     def getNextFreeVgpr(self) -> int:
         return self.signature.getNextFreeVgpr()
 

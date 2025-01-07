@@ -351,7 +351,7 @@ class GlobalWriteBatchWriter:
         module.add(ti.SAddU32(dst=sgpr(tmpSgpr+0), src0=sgpr(tmpSgpr+0), src1=sgpr(tmpSgpr+2), comment="Free%u" % i))
         module.add(ti.SAddCU32(dst=sgpr(tmpSgpr+1), src0=sgpr(tmpSgpr+1), src1=sgpr(tmpSgpr+3), comment="Free%u" % i))
 
-      bpetmp = int(self.parentWriter.states.bpr * self.kernel["ProblemType"]["DestDataType"].numRegisters()) # self.states.bpeCinternal
+      # bpetmp = int(self.parentWriter.states.bpr * self.kernel["ProblemType"]["DestDataType"].numRegisters()) # self.states.bpeCinternal# TODO (unused)
       module.add(ti.SLShiftLeftB64(dst=sgpr(tmpS04,2), src=sgpr(tmpSgpr+0,2), shiftHex=log2(self.parentWriter.states.bpeCexternal), comment="scale by bpe"))
 
     module.addSpaceLine()
@@ -398,7 +398,7 @@ class GlobalWriteBatchWriter:
     addr0 = vgpr(vgproffset)
     bps = self.kernel["ProblemType"]["ComputeDataType"].numBytes() * self.gwvw
     for elementIdx in range(0, len(self.batchElements)):
-      mask     = self.ss.elementMask[elementIdx]
+      # mask     = self.ss.elementMask[elementIdx]# TODO (unused)
       addrCalc: AddrCalculation = self.ss.elementAddr[elementIdx]
       SyncloadedData = 0
 
@@ -747,8 +747,8 @@ class GlobalWriteBatchWriter:
           loadsIssued = ceil(self.kernel["ProblemType"]["ComputeDataType"].numBytes() * gwvw / 16)
           if (self.ss.cfg.gwvw != gwvw) and (not skipLoad):
             remain_load = self.ss.cfg.gwvw - 1
-            bpl = self.kernel["ProblemType"]["ComputeDataType"].numBytes() * gwvw
-            bpr = ceil(bpl / self.parentWriter.states.bpr)
+            # bpl = self.kernel["ProblemType"]["ComputeDataType"].numBytes() * gwvw# TODO (unused)
+            #bpr = ceil(bpl / self.parentWriter.states.bpr)# TODO (unused)
             #For below ds_read instruction do not add bias issued , because of all ds_load instructions need to be completed at the same time in this batch.
             for r in range(remain_load):
               modGwvw.add(self.parentWriter.addLdsLoad(self.kernel["ProblemType"]["ComputeDataType"], dataVec, ldsAddrVgpr, vecOffset, factor_gwvw, comment=comment))
@@ -891,9 +891,10 @@ class GlobalWriteBatchWriter:
       for elementIdx in range(0, len(self.batchElements)):
         addrCalc: AddrCalculation = self.ss.elementAddr[elementIdx]
         if (self.kernel["ProblemType"]["UseE"] and not self.kernel["ProblemType"]["Gradient"]) and (self.kernel["GlobalSplitU"] == 1):
-          vgprIdx = self.ss.elementSumIdx[elementIdx] - self.parentWriter.states.c.startVgprValu
-          vgprDst = self.activationSetPCStruct.vgprActCopy if mergeActFuncCall else "ValuC+%d"%vgprIdx
-          module.add(self.parentWriter.addStore(self.kernel, self.ss, 'E', addrCalc, vgprDst, self.tmpS01, self.edge, comment="store E"))
+          raise RuntimeError("This branch is not supported because of an undefined variable. This is an error with tensilelite, please file a bug to hipBLASLt.")
+          # vgprIdx = self.ss.elementSumIdx[elementIdx] - self.parentWriter.states.c.startVgprValu
+          # vgprDst = self.activationSetPCStruct.vgprActCopy if mergeActFuncCall else "ValuC+%d"%vgprIdx
+          # module.add(self.parentWriter.addStore(self.kernel, self.ss, 'E', addrCalc, vgprDst, self.tmpS01, self.edge, comment="store E"))
 
         sumIdx = self.ss.elementSumIdx[elementIdx]
         if not self.kernel["StoreRemapVectorWidth"]:
@@ -955,7 +956,7 @@ class GlobalWriteBatchWriter:
     checkedDataScaleBVec = {}
     checkedDataScaleAlphaVec = {}
     for elementIdx in range(len(self.batchElements)):
-      sumIdxGSUSYNC = self.ss.elementSumIdx[elementIdx]
+      # sumIdxGSUSYNC = self.ss.elementSumIdx[elementIdx]# TODO (unused)
       if not self.ss.sharedColDVgprs:
         addrCalc: AddrCalculation = self.ss.elementAddr[elementIdx]
         addrEVgpr    = addrCalc.addrEVgpr

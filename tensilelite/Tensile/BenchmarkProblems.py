@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -37,7 +37,7 @@ from .BenchmarkStructs import BenchmarkProcess, constructForkPermutations
 from .Contractions import ProblemType as ContractionsProblemType
 from .ClientWriter import runClient, writeClientConfig, writeClientConfigIni
 from .Common import globalParameters, HR, pushWorkingPath, popWorkingPath, print1, print2, \
-        printExit, printWarning, ensurePath, startTime, validParameters
+        printExit, printWarning, ensurePath, startTime
 from .KernelWriterAssembly import KernelWriterAssembly
 from .SolutionStructs import Solution, ProblemType, ProblemSizes
 from .TensileCreateLibrary import copyStaticFiles, writeSolutionsAndKernels
@@ -191,7 +191,7 @@ def writeBenchmarkFiles(stepBaseDir, solutions, problemSizes, \
     return codeObjectFiles
 
 
-def benchmarkProblemType(problemTypeConfig, problemSizeGroupConfig, problemSizeGroupIdx, useCache, 
+def benchmarkProblemType(problemTypeConfig, problemSizeGroupConfig, problemSizeGroupIdx, useCache,
                          cxxCompiler: str, cCompiler: str, assembler: str, offloadBundler: str
     ):
     """Run the benchmarking for a single entry in the BenchmarkProblems of a Tensile config"""
@@ -341,7 +341,7 @@ def benchmarkProblemType(problemTypeConfig, problemSizeGroupConfig, problemSizeG
 
             writeClientConfigIni(True, benchmarkStep.problemSizes, benchmarkStep.biasTypeArgs,
                                  benchmarkStep.factorDimArgs, benchmarkStep.activationArgs,
-                                 benchmakrStep.icacheFlushArgs, conProblemType,
+                                 benchmarkStep.icacheFlushArgs, conProblemType,
                                  globalParameters["WorkingPath"], codeObjectFiles, resultsFileName,
                                  outFile)
 

@@ -28,7 +28,7 @@ from .Common import assignParameterWithDefault, \
                     globalParameters, internalParameters, \
                     print2, printExit, printWarning, \
                     validMFMA, validSMFMA, validParameters, \
-                    validGEMMTypes, HPATypes, roundUp, validWMMA
+                    validGEMMTypes, HPATypes, validWMMA, roundUp
 from .TensileInstructions.Utils import DataType, roundUpToNearestMultiple
 from .TensileInstructions.Base import fastdeepcopy as deepcopy
 
@@ -39,10 +39,11 @@ from .KernelWriterActivationFunction import KernelWriterActivationFunction
 from .KernelWriterActivationOnly import KernelWriterActivationOnly
 from .KernelWriterReduction import KernelWriterReduction
 
-from .AsmStoreState import VectorDataTypes
 from .Activation import ActivationType
 
+from .AsmStoreState import VectorDataTypes
 from .CustomKernels import isCustomKernelConfig
+
 
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -3171,7 +3172,6 @@ class Solution(collections.abc.Mapping):
         if GlobalReadVectorWidthMetadata == 0:
           GlobalReadVectorWidthMetadata = 1
         totalVectorsCoalescedM = totalElementsCoalescedM // GlobalReadVectorWidthMetadata
-        totalVectorsM = totalElementsM // GlobalReadVectorWidthMetadata
       else:
         GlobalReadVectorWidth = state["GlobalReadVectorWidthMetadata"] * state["NumLoadsPerpendicularA"] #sum all need read
         tvm = totalElementsM // GlobalReadVectorWidth
@@ -3388,11 +3388,11 @@ class Solution(collections.abc.Mapping):
           wtc = False # Vector
           # writeCoal indicates writes should be done in the coal dim or else perp
           nwcv = vw
-          nwpv = 1
+          # nwpv = 1  #TODO(check for deletion)
         else: # TN yes transpose
           wtc = True
           nwcv = 1
-          nwpv = vw
+          # nwpv = vw #TODO(check for deletion)
 
         blockWidth = findValidWriteBlockWidth(nwcv, bpe, bpr)
         nwcvpi = int(blockWidth * bpr / bpe)

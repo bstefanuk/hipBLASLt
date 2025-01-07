@@ -154,7 +154,7 @@ class ComputeStoreVgprsMFMA(ComputeStoreVgprs):
 
         tmpVgpr0 = writer.vgprPool.checkOut(1,"tmpVgpr0")
         tmpVgpr1 = writer.vgprPool.checkOutAligned(2,2,"tmpVgpr1")
-        tmpVgpr0Res = RegisterPoolResource(tmpVgpr0, 1)
+        # tmpVgpr0Res = RegisterPoolResource(tmpVgpr0, 1)# TODO (unused)
         tmpVgpr1Res = RegisterPoolResource(tmpVgpr1, 2)
         dummy    = writer.vgprPool.checkOut(1,"dummy")
 
@@ -165,7 +165,7 @@ class ComputeStoreVgprsMFMA(ComputeStoreVgprs):
             MIBShape0 = kernel["MatrixInstM"] * kernel["MatrixInstBM"]
             MIBShape1 = kernel["MatrixInstN"] * kernel["MatrixInstBN"]
 
-            matrixInstM = kernel["MatrixInstM"] * kernel["MatrixInstBM"] if (kernel["MatrixInstM"] == 4) else kernel["MatrixInstM"]
+            # matrixInstM = kernel["MatrixInstM"] * kernel["MatrixInstBM"] if (kernel["MatrixInstM"] == 4) else kernel["MatrixInstM"]# TODO (unused)
             matrixInstN = kernel["MatrixInstN"] * kernel["MatrixInstBN"] if (kernel["MatrixInstN"] == 4) else kernel["MatrixInstN"]
 
             module = Module("ComputeStoreVgprsMFMA")
@@ -286,7 +286,7 @@ class ComputeStoreVgprsMFMASwap(ComputeStoreVgprs):
             MIBShape1 = kernel["MatrixInstN"] * kernel["MatrixInstBN"]
 
             matrixInstM = kernel["MatrixInstM"] * kernel["MatrixInstBM"] if (kernel["MatrixInstM"] == 4) else kernel["MatrixInstM"]
-            matrixInstN = kernel["MatrixInstN"] * kernel["MatrixInstBN"] if (kernel["MatrixInstN"] == 4) else kernel["MatrixInstN"]
+            # matrixInstN = kernel["MatrixInstN"] * kernel["MatrixInstBN"] if (kernel["MatrixInstN"] == 4) else kernel["MatrixInstN"]# TODO (unused)
 
             module = Module("ComputeStoreVgprsMFMASwap")
 

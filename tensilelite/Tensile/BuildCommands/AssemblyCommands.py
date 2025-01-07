@@ -34,8 +34,8 @@ def _linkIntoCodeObject(
         with open(Path.cwd() / "clangArgs.txt", "wt") as file:
             file.write(" ".join(objFiles))
             file.flush()
-        args = [assembler, "-target", "amdgcn-amd-amdhsa", "-o", coFileRaw, "@clangArgs.txt"]
-        subprocess.check_call(args, cwd=asmDir)
+        args = [assembler, "-target", "amdgcn-amd-amdhsa", "-o", coPathDest, "@clangArgs.txt"]
+        subprocess.check_call(args)
     else:
         numObjFiles = len(objFiles)
         maxObjFiles = 10000

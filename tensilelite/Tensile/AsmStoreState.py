@@ -386,7 +386,7 @@ class StoreState:
         self.elementCoord1 = []
         self.elementSumIdx = []
 
-        kw = self.kernelWriter
+        # kw = self.kernelWriter# TODO (unused)
 
         if kernel["EnableMatrixInstruction"]:
             matrixInstM  = (kernel["MatrixInstM"] * kernel["MatrixInstBM"]) if (kernel["MatrixInstM"] == 4) else kernel["MatrixInstM"]
@@ -424,7 +424,7 @@ class StoreState:
                     strideD1 = (kernel["SubGroup1"] * kernel["VectorWidthB"])
                 coordOffset1 = d1 * strideD1 + vc1
 
-            newCoord1 = (self.firstBatch and elementIdx==0) or (coordOffset1 != self.lastCoordOffset1)
+            # newCoord1 = (self.firstBatch and elementIdx==0) or (coordOffset1 != self.lastCoordOffset1)# TODO (unused)
             self.elementCoord1.append(coordOffset1)
 
             # gpr and offset assignments for element

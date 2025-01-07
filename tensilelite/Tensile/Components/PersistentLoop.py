@@ -23,7 +23,6 @@
 from ..TensileInstructions.Code import Module, Label
 from ..TensileInstructions.Utils import vgpr, sgpr
 from ..TensileInstructions.Instructions import VMovB32, SCmpGeU32
-
 from ..Component import Component
 import abc
 
@@ -103,7 +102,8 @@ class PersistentLoopOn(PersistentLoop):
     def recalcLocalReadAddressesAB(self, writer, kernel):
         module = Module("PersistentLoop On recalcLocalReadAddressesAB")
 
-        needRecalc = writer.states.numReadsIterCoalescedA > 1 or writer.states.numReadsIterCoalescedB > 1
+        # TODO: Looks like this whole function can be discarded.
+        # needRecalc = writer.states.numReadsIterCoalescedA > 1 or writer.states.numReadsIterCoalescedB > 1 # TODO (unused)
         # backup LocalReadAddr
         # LdsPad + LBSPP case, need to backup LocalReadAddr even if recalc is not done
 

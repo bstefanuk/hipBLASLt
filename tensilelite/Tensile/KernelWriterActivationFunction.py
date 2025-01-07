@@ -137,7 +137,8 @@ class KernelWriterActivationFunction(KernelWriterBase):
 
   def getHeaderFileString(self):
     if self.state["ProblemType"]["ActivationType"] == 'none':
-      return fileString
+      raise RuntimeError("'ActiviationType'='none' is not supported in because there is an undefined variable 'fileString' would be returned. This is an error with tensilelite, please file a bug in hipBLASLt.")
+      # return fileString
 
     isa = tuple(self.state["Kernel"]["ISA"])
     self._tf.init(isa, self.cxxCompiler)

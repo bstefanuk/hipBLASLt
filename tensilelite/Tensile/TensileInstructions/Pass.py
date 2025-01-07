@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -28,8 +28,7 @@ from .Instructions import BranchInstruction, CommonInstruction, Instruction, \
                           ReadWriteInstruction, SEndpgm, SMovB32, \
                           _SWaitCnt, _SWaitCntVscnt, SSleep, SBarrier, SNop
 from .Formatting import slash50
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 @dataclass
 class TensileInstructionsPassOptions:

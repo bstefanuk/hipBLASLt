@@ -314,7 +314,7 @@ class LayerNormKernelGenerator:
         mod.add(ti.VLShiftLeftB32(vgpr("Offset+0"), hex(int(log2(self.num_load_size * self.bpe))), vgpr("Serial")))
         mod.addSpaceLine()
 
-        offset = self.num_workitems * self.num_load_size
+        # offset = self.num_workitems * self.num_load_size  # TODO (check is deletion is okay)
         mod.add(ti.SMovB32(sgpr("Tmp"), self.num_workitems * self.num_load_size * self.bpe))
         for i in range(0, self.num_load_count-1):
             mod.add(ti.VAddU32(vgpr(f"Offset+{i+1}"), vgpr(f"Offset+{i}"), sgpr("Tmp")))

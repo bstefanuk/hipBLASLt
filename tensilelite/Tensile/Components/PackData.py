@@ -22,6 +22,7 @@
 
 from ..TensileInstructions import Instructions as ti
 from ..TensileInstructions import ExtInstructions as exti
+from ..TensileInstructions.Base import TensileInstructions as TInstr
 from ..TensileInstructions.Code import Module
 from ..TensileInstructions.Containers import SDWAModifiers
 from ..TensileInstructions.Enums import SelectBit, UnusedBit
@@ -165,11 +166,11 @@ class PackData_INT8(PackData):
     kernel = {"ProblemType": {"ComputeDataType": DataType(DataType.int32), "DestDataType": DataType(DataType.int8)}}
     def __call__(self, gwvw, destIdx, elementSumIdx, i8CVTVgprStruct, tmpS01, SaturateTypeInt8 = exti.SaturateCastType.NORMAL, inputPrefix="", prefixOffset=0):
         vgprI8Mask0 = i8CVTVgprStruct.vgprI8Mask0
-        vgprI8Mask1 = i8CVTVgprStruct.vgprI8Mask1
+        # vgprI8Mask1 = i8CVTVgprStruct.vgprI8Mask1# TODO (unused)
         vgprI8Temp0 = i8CVTVgprStruct.vgprI8Temp0
-        vgprI8Temp1 = i8CVTVgprStruct.vgprI8Temp1
+        # vgprI8Temp1 = i8CVTVgprStruct.vgprI8Temp1# TODO (unused)
 
-        tin = TensileInstructions()
+        tinstr = TInstr()
         module = Module("PackData int8")
         gwvw4 = (gwvw // 4) * 4
         for vi in range(0, gwvw4):
@@ -182,7 +183,7 @@ class PackData_INT8(PackData):
                     module.add(exti.VSaturateCastInt(vgpr(formatting(sumIdxV-i, inputPrefix, prefixOffset)), vgprI8Temp0, tmpS01, -128, 127, type=SaturateTypeInt8, initGpr=(i%4 == 3)))
                 module.add(ti.VLShiftLeftB16(dst=vgpr(formatting(sumIdxV-2, inputPrefix, prefixOffset)), shiftHex=8, src=vgpr(formatting(sumIdxV-2, inputPrefix, prefixOffset))))
                 module.add(ti.VLShiftLeftB16(dst=vgpr(formatting(sumIdxV-0, inputPrefix, prefixOffset)), shiftHex=8, src=vgpr(formatting(sumIdxV-0, inputPrefix, prefixOffset))))
-                if tin.getArchCaps()["NoSDWA"]:
+                if tinstr.getArchCaps()["NoSDWA"]:
                     module.add(ti.VMovB32(vgpr(vgprI8Mask0), "0xFF", "bits 7:0")) # src0_sel=SelectBit.BYTE_0
                     module.add(ti.VAndB32(dst=vgpr(vgprI8Temp0), src0=vgpr(formatting(sumIdxV-3, inputPrefix, prefixOffset)), \
                                        src1=vgpr(vgprI8Mask0)))
@@ -194,9 +195,9 @@ class PackData_INT8(PackData):
                                       src1=vgpr(formatting(sumIdxV-2, inputPrefix, prefixOffset)), \
                                       sdwa=SDWAModifiers(dst_sel=SelectBit.DWORD, dst_unused=UnusedBit.UNUSED_PAD, \
                                                          src0_sel=SelectBit.BYTE_0, src1_sel=SelectBit.DWORD)))
-                if tin.getArchCaps()["SDWAWait"]:
+                if tinstr.getArchCaps()["SDWAWait"]:
                     module.add(ti.SNop(waitState=0, comment="1 wait states"))
-                if tin.getArchCaps()["NoSDWA"]:
+                if tinstr.getArchCaps()["NoSDWA"]:
                     module.add(ti.VMovB32(vgpr(vgprI8Mask0), "0xFF", "bits 7:0")) # src0_sel=SelectBit.BYTE_0
                     module.add(ti.VAndB32(dst=vgpr(vgprI8Temp0), src0=vgpr(formatting(sumIdxV-1, inputPrefix, prefixOffset)), \
                                        src1=vgpr(vgprI8Mask0)))
@@ -207,9 +208,9 @@ class PackData_INT8(PackData):
                                       src0=vgpr(formatting(sumIdxV-1, inputPrefix, prefixOffset)), src1=vgpr(formatVgpr), \
                                       sdwa=SDWAModifiers(dst_sel=SelectBit.WORD_1, dst_unused=UnusedBit.UNUSED_PAD, \
                                                          src0_sel=SelectBit.BYTE_0, src1_sel=SelectBit.DWORD)))
-                if tin.getArchCaps()["SDWAWait"]:
-                    module.add(SNop(waitState=0, comment="1 wait states"))
-                if tin.getArchCaps()["NoSDWA"]:
+                if tinstr.getArchCaps()["SDWAWait"]:
+                    module.add(ti.SNop(waitState=0, comment="1 wait states"))
+                if tinstr.getArchCaps()["NoSDWA"]:
                     module.add(ti.VMovB32(vgpr(vgprI8Mask0), "0xFFFF", "bits 15:0")) # src0_sel=SelectBit.WORD_0
                     module.add(ti.VAndB32(dst=vgpr(vgprI8Temp0), src0=vgpr(formatting(sumIdxV-3, inputPrefix, prefixOffset)), \
                                        src1=vgpr(vgprI8Mask0)))
@@ -220,7 +221,7 @@ class PackData_INT8(PackData):
                                       src1=vgpr(formatting(sumIdxV-2, inputPrefix, prefixOffset)), \
                                       sdwa=SDWAModifiers(dst_sel=SelectBit.DWORD, dst_unused=UnusedBit.UNUSED_PAD, \
                                                          src0_sel=SelectBit.WORD_0, src1_sel=SelectBit.DWORD)))
-                if tin.getArchCaps()["SDWAWait"]:
+                if tinstr.getArchCaps()["SDWAWait"]:
                     module.add(ti.SNop(waitState=0, comment="1 wait states"))
         # Left
         for vi in range(gwvw4, gwvw):
@@ -232,7 +233,7 @@ class PackData_INT8(PackData):
                 for i in reversed(range(0, 2)):
                     module.add(exti.VSaturateCastInt(vgpr(formatting(sumIdxV-i, inputPrefix, prefixOffset)), vgprI8Temp0, tmpS01, -128, 127, type=SaturateTypeInt8, initGpr=(i%2 == 1)))
                 module.add(ti.VLShiftLeftB16(dst=vgpr(formatVgpr), shiftHex=8, src=vgpr(formatVgpr)))
-                if tin.getArchCaps()["NoSDWA"]:
+                if tinstr.getArchCaps()["NoSDWA"]:
                     module.add(ti.VMovB32(vgpr(vgprI8Mask0), "0xFF", "bits 7:0")) # src0_sel=SelectBit.BYTE_0
                     module.add(ti.VAndB32(dst=vgpr(vgprI8Temp0), src0=vgpr(formatting(sumIdxV-1, inputPrefix, prefixOffset)), \
                                        src1=vgpr(vgprI8Mask0)))
@@ -244,7 +245,7 @@ class PackData_INT8(PackData):
                                       src1=vgpr(formatVgpr), \
                                       sdwa=SDWAModifiers(dst_sel=SelectBit.DWORD, dst_unused=UnusedBit.UNUSED_PAD, \
                                                          src0_sel=SelectBit.BYTE_0, src1_sel=SelectBit.DWORD)))
-                if tin.getArchCaps()["SDWAWait"]:
+                if tinstr.getArchCaps()["SDWAWait"]:
                     module.add(ti.SNop(waitState=0, comment="1 wait states"))
             elif vi + 1 >= gwvw:
                 module.add(exti.VSaturateCastInt(vgpr(formatVgpr), vgprI8Temp0, tmpS01, -128, 127, type=SaturateTypeInt8, initGpr=True))

@@ -541,47 +541,48 @@ class ActivationModule:
         module = Module("Gelu")
         # Gelu(x) = 0.5 * x * (1 + tanh(k0 * x * (1 + k1 * x * x)))
         if cDataType.isHalf():
-            flt16GeluK1Str = HexToStr(cDataType, self.usePK, ActivationMagicNumbers["Float16GeluK1"])
-            sgprMagicK1 = self.getSgpr(1)
-            sgprPKLiteral = self.getSgpr(1)
-            module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprMagicK1)), src=flt16GeluK1Str, comment="Float16GeluK1" ))
-            module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprPKLiteral)), src=coef.f))
-            vgprTemp = self.getVgpr(1)
-            if self.usePK:
-                module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="x * x" ))
-                module.add(ti.VFmaPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=vgpr(Holder(idx=vgprTemp)), src1=sgpr(Holder(idx=sgprMagicK1)), src2=1.0, \
-                                     vop3=ti.VOP3PModifiers(op_sel_hi=[1,1,0,1]), comment="x^2 * k1 + 1"))
-                module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (x^2 * k1 + 1)"))
-                coef = floatUnion(u=ActivationMagicNumbers["FloatGeluK0"])
-                module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(Holder(idx=sgprPKLiteral)), src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
-                module.add(self.getTanhModule(cDataType, Holder(idx=vgprTemp), Holder(idx=vgprTemp), "", ""))
-                module.add(ti.VAddPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), \
-                                     vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="1 + tanh(...)" ))
-                module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
+            raise RuntimeError("This branch is unsupported because of an undefined variable 'coef', this is an error in tensilelite, please file a bug to hipBLASLt.")
+            # flt16GeluK1Str = HexToStr(cDataType, self.usePK, ActivationMagicNumbers["Float16GeluK1"])
+            # sgprMagicK1 = self.getSgpr(1)
+            # sgprPKLiteral = self.getSgpr(1)
+            # module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprMagicK1)), src=flt16GeluK1Str, comment="Float16GeluK1" ))
+            # module.add(ti.SMovB32(dst=sgpr(Holder(idx=sgprPKLiteral)), src=coef.f))
+            # vgprTemp = self.getVgpr(1)
+            # if self.usePK:
+            #     module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="x * x" ))
+            #     module.add(ti.VFmaPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=vgpr(Holder(idx=vgprTemp)), src1=sgpr(Holder(idx=sgprMagicK1)), src2=1.0, \
+            #                          vop3=ti.VOP3PModifiers(op_sel_hi=[1,1,0,1]), comment="x^2 * k1 + 1"))
+            #     module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (x^2 * k1 + 1)"))
+            #     coef = floatUnion(u=ActivationMagicNumbers["FloatGeluK0"])
+            #     module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(Holder(idx=sgprPKLiteral)), src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
+            #     module.add(self.getTanhModule(cDataType, Holder(idx=vgprTemp), Holder(idx=vgprTemp), "", ""))
+            #     module.add(ti.VAddPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), \
+            #                          vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="1 + tanh(...)" ))
+            #     module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
 
-                if activationAlpha == None:
-                    module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), \
-                                    vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...))"))
-                else:
-                    module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), \
-                                    vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...))"))
-                    module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), \
-                                        vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...)) * scale"))
+            #     if activationAlpha == None:
+            #         module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), \
+            #                         vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...))"))
+            #     else:
+            #         module.add(ti.VMulPKF16(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), \
+            #                         vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...))"))
+            #         module.add(ti.VMulPKF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), \
+            #                             vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="0.5 * x * (1 + tanh(...)) * scale"))
 
-            else:
-                module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="x * x" ))
-                module.add(ti.VFmaF16(dst=vgpr(Holder(idx=vgprTemp)), src0=vgpr(Holder(idx=vgprTemp)), src1=sgpr(Holder(idx=sgprMagicK1)), src2=1.0, comment="x^2 * k1 + 1"))
-                module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (x^2 * k1 + 1)"))
-                coef = floatUnion(u=ActivationMagicNumbers["FloatGeluK0"])
-                module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(Holder(idx=sgprPKLiteral)), src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
-                module.add(self.getTanhModule(cDataType, Holder(idx=vgprTemp), Holder(idx=vgprTemp), "", ""))
-                module.add(ti.VAddF16(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), comment="1 + tanh(...)" ))
-                module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
-                if activationAlpha == None:
-                    module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
-                else:
-                    module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
-                    module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...)) * scale"))
+            # else:
+            #     module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=self.vgprPrefix(vgprIn), comment="x * x" ))
+            #     module.add(ti.VFmaF16(dst=vgpr(Holder(idx=vgprTemp)), src0=vgpr(Holder(idx=vgprTemp)), src1=sgpr(Holder(idx=sgprMagicK1)), src2=1.0, comment="x^2 * k1 + 1"))
+            #     module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (x^2 * k1 + 1)"))
+            #     coef = floatUnion(u=ActivationMagicNumbers["FloatGeluK0"])
+            #     module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=sgpr(Holder(idx=sgprPKLiteral)), src1=vgpr(Holder(idx=vgprTemp)), comment="k0 * x * (x^2 * k1 + 1)"))
+            #     module.add(self.getTanhModule(cDataType, Holder(idx=vgprTemp), Holder(idx=vgprTemp), "", ""))
+            #     module.add(ti.VAddF16(dst=vgpr(Holder(idx=vgprTemp)), src0=1.0, src1=vgpr(Holder(idx=vgprTemp)), comment="1 + tanh(...)" ))
+            #     module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=self.vgprPrefix(vgprIn), src1=vgpr(Holder(idx=vgprTemp)), comment="x * (1 + tanh(...))"))
+            #     if activationAlpha == None:
+            #         module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
+            #     else:
+            #         module.add(ti.VMulF16(dst=vgpr(Holder(idx=vgprTemp)), src0=0.5, src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...))"))
+            #         module.add(ti.VMulF16(dst=self.vgprPrefix(vgprOut), src0=sgpr(activationAlpha), src1=vgpr(Holder(idx=vgprTemp)), comment="0.5 * x * (1 + tanh(...)) * scale"))
         elif cDataType.isSingle():
             vgprTemp = self.getVgpr(1)
             flt16GeluK1Str = HexToStr(cDataType, self.usePK, ActivationMagicNumbers["FloatGeluK1"])
@@ -707,7 +708,7 @@ class ActivationModule:
                                      vop3=ti.VOP3PModifiers(op_sel_hi=[0,1,1]), comment="e^2x + 1"))
                 for i in range(0, 2):
                     select_bit = SelectBit.WORD_0 if i == 0 else SelectBit.WORD_1
-                    vgprCtrl = "dst_sel:WORD_%d dst_unused:UNUSED_PRESERVE src0_sel:WORD_%d"%(i, i)
+                    # vgprCtrl = "dst_sel:WORD_%d dst_unused:UNUSED_PRESERVE src0_sel:WORD_%d"%(i, i)# TODO (unused)
                     module.add(ti.VRcpF16(dst=self.vgprPrefix(vgprOut), src=self.vgprPrefix(vgprOut), \
                                        sdwa=SDWAModifiers(dst_sel=select_bit, dst_unused=UnusedBit.UNUSED_PRESERVE, \
                                                           src0_sel=select_bit), \

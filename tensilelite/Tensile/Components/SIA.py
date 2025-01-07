@@ -29,10 +29,8 @@ from ..Common import roundUp
 from ..Component import SIA
 from ..TensileInstructions.Containers import DSModifiers
 
-import copy
-from math import ceil
+PRECISION: int = 100
 
-PRECISION = 100
 class SIA3(SIA):
     kernel = {"ScheduleIterAlg": 3}
     def __call__(self):
@@ -65,7 +63,7 @@ class SIA3(SIA):
             itemsGRToSched, itemsGRToSchedLater = prepareGRInstToSched(writer, kernel, isNGLL)
             itemsGRIncToSched = appendInstToSchedSIA3(writer, kernel, numEmptyGlobalReadIncCode, globalReadIncACode, globalReadIncBCode)
             schedNumForIter0, endIter = getSchedNumForIter0SIA3(writer, kernel, itemsGRToSched, itemsGRIncToSched, numGlobalReadInsPerIter)
-            lastLoadIter = schedGlobalRead(writer, itemsGRToSched, itemsGRIncToSched, numGlobalReadInsPerIter, schedNumForIter0, endIter)
+            schedGlobalRead(writer, itemsGRToSched, itemsGRIncToSched, numGlobalReadInsPerIter, schedNumForIter0, endIter)
         # Schedule local write
         if not writer.states.scheduleLocalWrite:
             noSchedLocalWrite(writer, kernel, tensorParametersA, tensorParametersB, localWriteEndIter)
@@ -784,7 +782,8 @@ def schedLocalWrite(writer, kernel, numLocalWriteModPerIter, numLocalWritesPerSc
         newAdditionalIndexList = fastdeepcopy(additionalIndexList)
         additionalIndexList = {}
         for idx in newAdditionalIndexList:
-            additionalIndexList[idx - itemPerIter] = newAdditionalIndexList[idx]
+            raise RuntimeError("This branch is unsupported b/c of an undefined variable. This is an error with tensilelite, please file a bug in hipBLASLt")
+            # additionalIndexList[idx - itemPerIter] = newAdditionalIndexList[idx]
 
         if u==(localWriteEndIter):
             itemPerIter = len(itemsLWToSched) # schedule all remaining activity
@@ -907,7 +906,7 @@ def splitDSInstructionIntoSmaller(writer, kernel, item, numLocalWritesPerSched, 
     if instruction == None:
         assert 0, "no instructions to be splitted"
 
-    lwLatency = ti.DSStoreB128.issueLatency()
+    # lwLatency = ti.DSStoreB128.issueLatency() # TODO (unused)
     miLatency = writer.states.miLatency
     div       = 1
     dsOffset  = 0
@@ -955,7 +954,7 @@ def splitDSInstructionIntoSmaller(writer, kernel, item, numLocalWritesPerSched, 
 
     addr = instruction.getParams()[0]
     srcr = instruction.getParams()[1]
-    offs = instruction.getParams()[2]
+    # offs = instruction.getParams()[2]# TODO (unused)
     ds   = instruction.getParams()[3]
     writeInst = []
     for d in range(div):

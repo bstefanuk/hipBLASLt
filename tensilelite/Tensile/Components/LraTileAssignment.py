@@ -166,7 +166,7 @@ class LraTileAssignmentMFMA(LraTileAssignment):
         strideK          = inputPerThread if umlds else (mt + LdsPad) * inputPerThread
         strideBlock      = kernel["MatrixInstM"] * strideTile
         strideWave       = kernel["MatrixInstM"] * num1DBlocks * strideTile * vectorWidth
-        lsu              = kernel["LocalSplitU"]
+        # lsu              = kernel["LocalSplitU"]# TODO (unused)
 
         if isDTVAB:
           strideTile  = 1 # DTV case. Actual stride will be applied later.

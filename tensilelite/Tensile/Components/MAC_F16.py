@@ -171,7 +171,7 @@ class FMA_F16_Packed(MAC):
                     module.add(priority(writer, 1, "Raise priority while processing macs"))
 
                     cIdxExpr = "{blockA} + {blockB}*{ThreadTile0} + {Half_ThreadTile0}".format_map(vars)
-                    cIdxVal  = eval(vars["cIdxExpr"])
+                    # cIdxVal  = eval(vars["cIdxExpr"])# TODO (unused)
 
                     cStr = "v[vgprValuC + {cIdxExpr}]".format_map(vars)
 

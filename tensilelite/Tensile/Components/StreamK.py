@@ -860,7 +860,8 @@ class StreamK(Component):
 
         # branch if Edge0 or Edge1
         if False in edges and True in edges:
-            module.add(writer.checkIsEdge(kernel, tmpSgprInfo, fixupLabels[True], fixupLabels[True]))
+            raise RuntimeError("This branch is unsupported because it contains an an undefined variable 'tmpSgprInfo'. This is an error with tensilelite, please file a bug in hipBLASLt.")
+            # module.add(writer.checkIsEdge(kernel, tmpSgprInfo, fixupLabels[True], fixupLabels[True]))
 
         # by now we either jumped to E1 or stayed at E0
         for edge in edges:
@@ -1116,7 +1117,7 @@ class StreamK(Component):
         storesIssued = 0
         tmpS01 = tmpSgpr # scratch sgprs
 
-        wavelen = kernel["WavefrontSize"]
+        # wavelen = kernel["WavefrontSize"]# TODO (unused)
         # laneSGPRC = writer.states.laneSGPRCount
         # always use gwvw for buffer load C for atomic_cmpswap
         # bpm = self.bpeCexternal * atomicW
@@ -1284,14 +1285,14 @@ class StreamK(Component):
 
         for elementIdx in range(0, len(batchElements)):
             element = batchElements[elementIdx]
-            addr = ss.elementAddr[elementIdx].addrDVgpr
+            # addr = ss.elementAddr[elementIdx].addrDVgpr# TODO (unused)
             mask = ss.elementMask[elementIdx]
             addrCalc = ss.elementAddr[elementIdx]
             # d1 = element[0]
             # d0 = element[1]
             # vc1 = element[2]
             vc0 = element[3]
-            sumIdx = ss.elementSumIdx[elementIdx]
+            # sumIdx = ss.elementSumIdx[elementIdx]# TODO (unused)
 
             # apply in-bounds exec mask
             if edge and not kernel["BufferStore"]:
@@ -1336,7 +1337,7 @@ class StreamK(Component):
                             #                 "%s = C*beta ei=%u vi=%u"%(vgpr(dataV),elementIdx, vi))
                             # else:
                             if (vi % 2) != 0:
-                                module.add(VLShiftRightB32(dst=vgpr(dataV), shiftHex=16, src=vgpr(dataV), \
+                                module.add(ti.VLShiftRightB32(dst=vgpr(dataV), shiftHex=16, src=vgpr(dataV), \
                                     comment="shift 16bit to get next half of packed ValueC"))
                             # dataV+0 = new c = old c*beta + rC
                             module.add(ti.VAddPKF16(dst=vgpr("ValuC+%u"%(sumIdxV)), src0=vgpr(dataV), src1=vgpr("ValuC+%u"%(sumIdxV)), \
@@ -1367,7 +1368,7 @@ class StreamK(Component):
                         #     comment="//C*=beta"))
                         module.add(writer.states.mixinst(dst=vgpr("ValuC+%u"%newSumIdxV), src0=1, \
                             src1=vgpr(dataCExternal), src2=vgpr("ValuC+%u"%newSumIdxV), \
-                            vop3=VOP3PModifiers(op_sel=[0,hi16,0], op_sel_hi=[0,1,0]),
+                            vop3=ti.VOP3PModifiers(op_sel=[0,hi16,0], op_sel_hi=[0,1,0]),
                             comment="//C*=beta"))
                         # kStr += inst(self.mixinst, vgpr("ValuC+%u"%sumIdxV), 1, \
                         #         vgpr(dataCExternal), vgpr("ValuC+%u"%sumIdxV), \
@@ -1385,7 +1386,7 @@ class StreamK(Component):
                         #     kStr += inst("v_and_b32", vgpr(tmpVgpr), vgpr(dataCExternal), vgpr(vgprBf16Mask), "convert bf16 to fp32")
                         # else:
                         #     kStr += inst("v_lshlrev_b32", vgpr(tmpVgpr), "16", vgpr(dataCExternal), "convert bf16 to fp32" )
-                        module.add(ti.VCvtBF16toFP32(dst=(tmpVgpr), src=(dataCExternal), vgprMask=(cvtVgprStruct.vgprBf16Mask), vi=(vi)))
+                        module.add(exti.VCvtBF16toFP32(dst=(tmpVgpr), src=(dataCExternal), vgprMask=(cvtVgprStruct.vgprBf16Mask), vi=(vi)))
                         newSumIdxV = sumIdxV - writer.states.c.startVgprValu
                         module.add(ti.VAddF32(dst=vgpr("ValuC+%u"%sumIdxV), src0=vgpr("ValuC+%u"%sumIdxV), src1=vgpr(tmpVgpr), comment="accum partials"))
 
