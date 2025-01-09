@@ -143,7 +143,7 @@ class LSUOn(LSU):
 
         # prepare the data that is to be Reduction in this wave
         # the output LSUelementsArchIdx has all arch-indices.
-        # validOffset = self.splitOutputData(writer, kernel)# TODO (unused)
+        self.splitOutputData(writer, kernel)
 
         numAccIdx    = len(self.LSUelementsArchIdx[0])
         numSetAccIdx = ceilDivide(numAccIdx, kernel["LocalSplitUReuseLDS"])

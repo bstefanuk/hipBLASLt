@@ -2004,7 +2004,7 @@ class GlobalWriteBatchWriter:
           # Generate single f32 code if edge is detected.
           isPK = False
           if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
-            if self.parentWriter.states.archCaps["ti.VOP3ByteSel"]:
+            if self.parentWriter.states.archCaps["VOP3ByteSel"]:
               sb = 0 if self.gwvw == 1 else 1
               clangver = globalParameters['AMDClangVersion'].split(".")
               clangMaj = int(clangver[0])
@@ -2040,7 +2040,7 @@ class GlobalWriteBatchWriter:
           # Generate single f32 code if edge is detected.
           isPK = False
           if ((vi + 1) == self.gwvw) and ((self.gwvw % 2) == 1):
-            if self.parentWriter.states.archCaps["ti.VOP3ByteSel"]:
+            if self.parentWriter.states.archCaps["VOP3ByteSel"]:
               sb = 0 if self.gwvw == 1 else 1
               clangver = globalParameters['AMDClangVersion'].split(".")
               clangMaj = int(clangver[0])
