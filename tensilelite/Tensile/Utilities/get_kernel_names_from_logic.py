@@ -141,27 +141,27 @@ def update_yaml_files(yaml_files, library_logics, output_path):
                                 "idx {idx} out of range of library size {lib_size}... skipping,\n  offending file: {filename}"
                             )
 
-            keep_sol = set()
-            del_sol_idx = set()
-            for idx, s in enumerate(solutions_content):
-                if s["SolutionPseudoNameMin"] not in keep_sol:
-                    keep_sol.add(s["SolutionPseudoNameMin"])
-                else:
-                    del_sol_idx.add(idx)
+            # keep_sol = set()
+            # del_sol_idx = set()
+            # for idx, s in enumerate(solutions_content):
+            #     if s["SolutionPseudoNameMin"] not in keep_sol:
+            #         keep_sol.add(s["SolutionPseudoNameMin"])
+            #     else:
+            #         del_sol_idx.add(idx)
 
-            print(f"Total number of solutions: {len(solutions_content)}, with {len(del_sol_idx)} marked for removal")
+            # print(f"Total number of solutions: {len(solutions_content)}, with {len(del_sol_idx)} marked for removal")
 
-            solutions_content_copy = deepcopy(solutions_content)
-            for sol in solutions_content_copy:
-                if sol["SolutionIndex"] in del_sol_idx:
-                    del solutions_content[sol["SolutionIndex"]]
+            # solutions_content_copy = deepcopy(solutions_content)
+            # for sol in solutions_content_copy:
+            #     if sol["SolutionIndex"] in del_sol_idx:
+            #         solutions_content.remove(sol)
 
-            exact_logic_content_copy = deepcopy(exact_logic_content)
-            for exact_logic in exact_logic_content_copy:
-                problem, idx_list = exact_logic
-                idx = idx_list[0]
-                if idx in del_sol_idx:
-                    del exact_logic_content[idx]
+            # exact_logic_content_copy = deepcopy(exact_logic_content)
+            # for exact_logic in exact_logic_content_copy:
+            #     problem, idx_list = exact_logic
+            #     idx = idx_list[0]
+            #     if idx in del_sol_idx:
+            #         exact_logic_content.remove(exact_logic)
 
             new_file = get_new_file_path(yaml_file, output_path)
             with open(new_file, "w") as file:

@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -70,6 +70,7 @@ def timing(func):
     return res
   return wrapper
 ################################################################################
+@profile
 def processKernelSource(kernel, kernelWriterAssembly, ti):
     """
     Generate source for a single kernel.
@@ -230,6 +231,7 @@ def splitArchs():
       cmdlineArchs += [arch]
   return archs, cmdlineArchs
 
+@profile
 def buildSourceCodeObjectFile(CxxCompiler, outputPath, kernelFile):
     buildPath = ensurePath(os.path.join(globalParameters['WorkingPath'], 'code_object_tmp'))
     destDir = ensurePath(os.path.join(outputPath, 'library'))
@@ -1071,7 +1073,7 @@ def generateKernelObjectsFromSolutions(solutions):
         # for each kernel, we create a new name that has a bunch of M's instead of values
         # kName = Solution.getKeyNoInternalArgs(kernel)
         kName = Solution.getPseudoNameFull(kernel)
-        # if we've already visited this kernel, skip it 
+        # if we've already visited this kernel, skip it
         # but here we also compare the
         if kName not in kernelNames:
             kernels.append(kernel)
@@ -1088,8 +1090,8 @@ def generateKernelObjectsFromSolutions(solutions):
   # print("LEN OF KERNELS", len(kernels))
   # with open("names.yaml", "w") as f:
   #   output = {
-  #     "kernels": [[str(k), hash(k), k._state["codeObjectFile"]] for k in kernels], 
-  #     "kernelNames": [[str(k), hash(k), k._state["codeObjectFile"]] for k in kernelNames], 
+  #     "kernels": [[str(k), hash(k), k._state["codeObjectFile"]] for k in kernels],
+  #     "kernelNames": [[str(k), hash(k), k._state["codeObjectFile"]] for k in kernelNames],
   #     "discardedKernels": [[str(k), hash(k), k._state["codeObjectFile"]] for k in discardedKernels]
   #   }
   #   yaml.dump(output, f)
@@ -1256,7 +1258,6 @@ def validateLibrary(masterLibraries: MasterSolutionLibrary,
 ################################################################################
 # Tensile Create Library
 ################################################################################
-@profile
 def TensileCreateLibrary():
   print1("")
   print1(HR)
