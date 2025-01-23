@@ -36,7 +36,7 @@ from Tensile.TensileInstructions.Utils import vgpr, sgpr, log2, DataType
 from Tensile.TensileInstructions.RegisterPool import RegisterPool
 from Tensile.Common import detectGlobalCurrentISA, restoreDefaultGlobalParameters, \
     assignGlobalParameters, getGfxName, gfxArch, globalParameters
-from Tensile.Utilities.Toolchain import ToolchainDefaults, validateToolchain
+from Tensile.Toolchain.Validators import ToolchainDefaults, validateToolchain
 
 def kernel_header(name: str, gfx_arch: str, vgpr: int, sgpr: int, lds: int):
     vgpr = ((vgpr+7)//8)*8

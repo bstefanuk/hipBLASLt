@@ -22,7 +22,6 @@
 #
 ################################################################################
 
-from ..TensileInstructions import Instructions as ti
 from ..TensileInstructions import Math as mathti
 from ..TensileInstructions.Code import Module
 from ..TensileInstructions.RegisterPool import RegisterPoolResource
@@ -186,10 +185,8 @@ class LraTileAssignmentMFMA(LraTileAssignment):
                     "2. block offset: bnIdx = wtid / dividedForBlkId(%u)" % dividedForBlkId))
                 module.add(mathti.vectorStaticRemainder(dummy, dummy, dummy, num1DBlocks, tmpVgprRes, tmpSgprInfo, \
                     "2. block offset: bnIdx = bnIdx %% num1DBlocks(%u)" % num1DBlocks))
-                module.add(mathti.staticMultiply(vgpr(dummy), vgpr(dummy), strideBlock, tmpSgprInfo, \
-                    "2. block offset: bnOffset = bnIdx * strideBlock(%u)" % strideBlock))
-                module.add(ti.VAddU32(dst=vgpr(tReg), src0=vgpr(dummy), src1=vgpr(tReg), \
-                    comment="3. add N and block offset: bnOffset = block and N offset"))
+                module.add(mathti.staticMultiplyAdd(vgpr(tReg), vgpr(dummy), strideBlock, vgpr(tReg), tmpSgprInfo, \
+                    "2. block offset: bnOffset = bnIdx * strideBlock(%u); 3. add N and block offset: bnOffset = block and N offset" % strideBlock))
             else:
                 module.addComment0("Skip. 2. block offset: bnOffset = 0 when num1DBlocks = 1")
 
@@ -204,10 +201,8 @@ class LraTileAssignmentMFMA(LraTileAssignment):
                   module.add(mathti.vectorStaticDivide(kReg, kReg, dividendForKId, tmpVgprRes, \
                   "5. K offset: kIdx = wtid / (MIN(%u) * MIBB(%u))" % (kernel["MatrixInstN"], kernel["MatrixInstB"])))
                 if (dividendForKId != waveWidth) and (not isDTVAB):
-                    module.add(mathti.staticMultiply(vgpr(kReg), vgpr(kReg), strideK, tmpSgprInfo, \
-                    "5. K offset: lrKOffset = kIdx * mStride(%u)" % (strideK)))
-                    module.add(ti.VAddU32(dst=vgpr(tReg), src0=vgpr(kReg), src1=vgpr(tReg), \
-                    comment="6. offset in wave: lrOffset = bnOffset + lrKOffset"))
+                    module.add(mathti.staticMultiplyAdd(vgpr(tReg), vgpr(kReg), strideK, vgpr(tReg), tmpSgprInfo, \
+                                                 "5. K offset: lrKOffset = kIdx * mStride(%u); 6. offset in wave: lrOffset = bnOffset + lrKOffset" % (strideK)))
 
             # wave offset
             if num1DWaves > 1:
@@ -215,10 +210,8 @@ class LraTileAssignmentMFMA(LraTileAssignment):
                     "7. wave offset in N dimen: wtid = tid / dividedForWaveId(%u)" % dividedForWaveId))
                 module.add(mathti.vectorStaticRemainder(dummy, dummy, dummy, num1DWaves, tmpVgprRes, tmpSgprInfo, \
                     "7. wave offset in M dimen: wtid0 = wtid / num1DWaves(%u)" % num1DWaves))
-                module.add(mathti.staticMultiply(vgpr(dummy), vgpr(dummy), strideWave, tmpSgprInfo, \
-                    "7. wave offset in M dimen: wOffset = wtid0 * W0Stride(%u)" % strideWave))
-                module.add(ti.VAddU32(dst=vgpr(tReg), src0=vgpr(dummy), src1=vgpr(tReg), \
-                    comment="7. final local read offset: flrOffset = lrOffset + WOffset"))
+                module.add(mathti.staticMultiplyAdd(vgpr(tReg), vgpr(dummy), strideWave, vgpr(tReg), tmpSgprInfo, \
+                                             "7. wave offset in M dimen: wOffset = wtid0 * W0Stride(%u); 7. final local read offset: flrOffset = lrOffset + WOffset" % strideWave))
 
         # release register
         writer.vgprPool.checkIn(dummy)

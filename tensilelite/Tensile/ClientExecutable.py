@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -57,8 +57,7 @@ class CMakeEnvironment:
 
 def clientExecutableEnvironment(builddir: Optional[str], cxxCompiler: str, cCompiler: str):
     sourcedir = globalParameters["SourcePath"]
-    if builddir is None:
-        builddir = os.path.join(globalParameters["OutputPath"], globalParameters["ClientBuildPath"])
+
     builddir = Common.ensurePath(builddir)
 
     options = {'CMAKE_BUILD_TYPE': globalParameters["CMakeBuildType"],
@@ -74,14 +73,14 @@ def clientExecutableEnvironment(builddir: Optional[str], cxxCompiler: str, cComp
 
 buildEnv = None
 
-def getClientExecutable(cxxCompiler: str, cCompiler: str, builddir=None):
+def getClientExecutable(cxxCompiler: str, cCompiler: str, builddir):
     if "PrebuiltClient" in globalParameters:
         return globalParameters["PrebuiltClient"]
 
     global buildEnv
 
     if buildEnv is None:
-        buildEnv = clientExecutableEnvironment(builddir, cxxCompiler, cCompiler)
+        buildEnv = clientExecutableEnvironment(builddir / globalParameters["ClientBuildPath"], cxxCompiler, cCompiler)
         buildEnv.generate()
         buildEnv.build()
 

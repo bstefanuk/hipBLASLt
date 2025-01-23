@@ -41,10 +41,15 @@ from .SolutionStructs import isPackedIndex
 from .AsmStoreState import StoreState, VectorDataTypes
 from .Activation import ActivationType
 from .Utils import DataDirection
+from .CustomKernels import isCustomKernelConfig
 
 from math import ceil
 from copy import deepcopy
-from typing import NamedTuple, Optional, List
+from dataclasses import dataclass, field
+from typing import NamedTuple, Tuple
+
+import os
+import subprocess
 
 ################################################################################
 # Assembly Kernel
@@ -57,6 +62,23 @@ class KernelWriterAssembly(KernelWriter):
   ##############################################################################
   def __init__(self, kernelMinNaming, kernelSerialNaming, assembler: str):
     super(KernelWriterAssembly, self).__init__(kernelMinNaming, kernelSerialNaming, assembler)
+
+
+  def getSourceFileString(self, kernel) -> Tuple[int, str]:
+    assert kernel["KernelLanguage"] == "Assembly"
+    # Skip if .o files will have already been built for this file
+    if kernel.duplicate:
+      self.language = "ASM"
+      return (0, "") # should this be an non zero number
+
+    try:
+      code = self._getCustomKernelSource(kernel, globalParameters["CustomKernelDirectory"]) if isCustomKernelConfig(kernel) else self._getKernelSource(kernel)
+      errcode = 0
+    except RuntimeError as e:
+      printWarning(f"Failed to generate assembly source code for {kernel}: {e}")
+      code = ""
+      errcode = -2
+    return (errcode, code)
 
   def getSgprOccupancy(self, sgprs):
     return self.states.regCaps["PhysicalMaxSgpr"]//sgprs
@@ -1503,9 +1525,23 @@ class KernelWriterAssembly(KernelWriter):
         moduleArgs.add(ti.SAddCU32(dst=sgpr("KernArgAddress+1"), src0=sgpr("KernArgAddress+1"), src1=hex(0)))
         self.argLoader.resetOffset()
         moduleArgs.addModuleAsFlatItems(self.getKernelArgLoadModule(kernel, sgprStart, load, self.states.numSgprPreload - self.states.userArgsInfo.commonArgsNum))
+<<<<<<< HEAD
         for i in range(self.states.userArgsInfo.commonArgsNum, self.states.numSgprPreload):
           moduleArgs.add(ti.SMovB32(dst=sgpr(sgprStart+i-self.states.userArgsInfo.commonArgsNum), src=sgpr(preloadSgprStartIdx+i), comment="move preload data to correct sgpr"))
         moduleArgs.add(ti.SBranch(labelName=perloadLabelLoadEnd.getLabelName()))
+=======
+        i = self.states.userArgsInfo.commonArgsNum
+        while i < self.states.numSgprPreload:
+          dstIndex = sgprStart+i-self.states.userArgsInfo.commonArgsNum
+          srcIndex = preloadSgprStartIdx+i
+          if (i + 1 < self.states.numSgprPreload) and (dstIndex % 2 == 0) and (srcIndex % 2 == 0):
+            moduleArgs.add(SMovB64(dst=sgpr(sgprStart+i-self.states.userArgsInfo.commonArgsNum, 2), src=sgpr(preloadSgprStartIdx+i, 2), comment="move preload data to correct sgpr"))
+            i += 2
+          else:
+            moduleArgs.add(SMovB32(dst=sgpr(sgprStart+i-self.states.userArgsInfo.commonArgsNum), src=sgpr(preloadSgprStartIdx+i), comment="move preload data to correct sgpr"))
+            i += 1
+        moduleArgs.add(SBranch(labelName=perloadLabelLoadEnd.getLabelName()))
+>>>>>>> remove-global-working-path
         moduleArgs.add(preloadLabelHBM)
         moduleArgs.add(ti.SMovB64(dst=sgpr("KernArgAddress", 2), src=sgpr(preloadSgprStartIdx+4, 2), comment="Load address of kernel arguments"))
         moduleArgs.add(perloadLabelLoadEnd)
@@ -2136,10 +2172,15 @@ class KernelWriterAssembly(KernelWriter):
               "2. wave offset in N dimen: wtid = tid / dividedForWaveId(%u)" % dividedForWaveId))
           module.add(mathti.mathti.vectorStaticRemainder(dummy, wReg, wReg, num1DWaves, tmpVgprRes, tmpSgprInfo, \
               "2. wave offset in M dimen: wtid0 = wtid / num1DWaves(%u)" % num1DWaves))
+<<<<<<< HEAD
           module.add(mathti.mathti.staticMultiply(vgpr(wReg), vgpr(wReg), offsetWave, tmpSgprInfo, \
               "2. wave offset in M dimen: wOffset = wtid0 * W0 offset(%u)" % offsetWave))
           module.add(ti.VAddU32(vgpr("GlobalReadOffsetMetadata"), vgpr(wReg), vgpr(tReg),
               "2. tile coord = tileOffset + wOffset"))
+=======
+          module.add(staticMultiplyAdd(vgpr("GlobalReadOffsetMetadata"), vgpr(wReg), offsetWave, vgpr(tReg), tmpSgprInfo, \
+                                       "2. wave offset in M dimen: wOffset = wtid0 * W0 offset(%u); 2. tile coord = tileOffset + wOffset" % offsetWave))
+>>>>>>> remove-global-working-path
         else:
           module.add(ti.VMovB32(vgpr("GlobalReadOffsetMetadata"), vgpr(tReg), \
               "2. tile coord = tileOffset"))
@@ -2236,6 +2277,15 @@ class KernelWriterAssembly(KernelWriter):
       module.add(ValueSet(name="globalReadOffsetB%s" % self.states.indexChars[index], value=0))
     return module
 
+  def alignTo(self, dstBase: Union[int, str], srcBase: Union[int, str], alignment: int) -> Module:
+    assert (alignment & (alignment - 1)) == 0 and f"Alignment must be power of two"
+    module = Module()
+    module.addComment(f"Align to {alignment}")
+    module.add(SAddU32(sgpr(dstBase), sgpr(srcBase), alignment-1))
+    module.add(SLShiftRightB32(dst=sgpr(dstBase), src=sgpr(dstBase), shiftHex=log2(alignment)))
+    module.add(SLShiftLeftB32(dst=sgpr(dstBase), src=sgpr(dstBase), shiftHex=log2(alignment)))
+    return module
+
   ##############################################################################
   # Global Read Addresses: Tile Offsets A/B
   ##############################################################################
@@ -2277,8 +2327,16 @@ class KernelWriterAssembly(KernelWriter):
           swizzleStridePerWave = self.sgprPool.checkOut(1)
           WvG_M = kernel["MIWaveGroup"][0]
           # Calc stride = numKr * WaveG[0], TODO- 32 should be MI_K * 2
+<<<<<<< HEAD
           module.add(ti.SLShiftRightB32(dst=sgpr(swizzleStridePerWave), shiftHex=hex(log2(32)), src=sgpr("SizesSum"),  comment="SWZ: numKr = DimK / 32"))
           module.add(ti.SMulI32(dst=sgpr(swizzleStridePerWave), src0=hex(WvG_M), src1=sgpr(swizzleStridePerWave), comment="SWZ: numKr *= MI_WvG[0] (%u), how many wave-M per WG" % WvG_M))
+=======
+          swizzleStrideVal = 32
+          module.addComment(f"Align to {swizzleStrideVal}")
+          module.add(SAddU32(sgpr(swizzleStridePerWave), sgpr("SizesSum"), swizzleStrideVal-1))
+          module.add(SLShiftRightB32(dst=sgpr(swizzleStridePerWave), src=sgpr(swizzleStridePerWave), shiftHex=hex(log2(swizzleStrideVal))))
+          module.add(SMulI32(dst=sgpr(swizzleStridePerWave), src0=hex(WvG_M), src1=sgpr(swizzleStridePerWave), comment="SWZ: numKr *= MI_WvG[0] (%u), how many wave-M per WG" % WvG_M))
+>>>>>>> remove-global-working-path
 
       for l in range(1, tP["nrt"]):
         strideValue = stride
@@ -2904,8 +2962,12 @@ class KernelWriterAssembly(KernelWriter):
         module.add(ti.SAddU32(sgpr("SrdMetadata+0"), sgpr("AddressMetadata+0"), sgpr(tileStart+0), "SRD base = Address+ tileStart0"))
         module.add(ti.SAddCU32(sgpr("SrdMetadata+1"), sgpr("AddressMetadata+1"), sgpr(tileStart+1), "SRD base = Address+ tileStart1"))
       else:
+<<<<<<< HEAD
         module.add(ti.SMovB32(sgpr("SrdMetadata+0"), sgpr("AddressMetadata+0"), "init SRD base address (lower )" ))
         module.add(ti.SMovB32(sgpr("SrdMetadata+1"), sgpr("AddressMetadata+1"), "init SRD base address (upper) + other fields" ))
+=======
+        module.add(SMovB64(sgpr("SrdMetadata+0", 2), sgpr("AddressMetadata+0", 2), "init SRD base address" ))
+>>>>>>> remove-global-working-path
 
       module.add(ti.SMovB32(sgpr("SrdMetadata+3"), "Srd127_96", "Set bits 127_96 in SRD"))
     return module
@@ -2966,8 +3028,17 @@ class KernelWriterAssembly(KernelWriter):
         module.add(ti.SMovB64(dst=sgpr(tileStart, 2), src=0, comment="set default tileStart"))
 
       #Calculate tensor 2d size
+<<<<<<< HEAD
       module.add(ti.SMovB32(dst=sgpr(tensor2dSize0), src=0x1, comment="Init tensor size"))
       module.add(ti.SMovB32(dst=sgpr(tensor2dSize1), src=0x0, comment="init tensor size"))
+=======
+      if self.states.use64bShadowLimit or ((not self.states.use64bShadowLimit) and tensor2dSize0 % 2 == 0):
+        module.add(SMovB64(dst=sgpr(tensor2dSize0, 2), src=0x1, comment="Init tensor size"))
+      else:
+        module.add(SMovB32(dst=sgpr(tensor2dSize0), src=0x1, comment="Init tensor size"))
+        module.add(SMovB32(dst=sgpr(tensor2dSize1), src=0x0, comment="init tensor size"))
+
+>>>>>>> remove-global-working-path
 
       numDim = len(indices)
       for i in range(0, numDim):
@@ -2985,7 +3056,21 @@ class KernelWriterAssembly(KernelWriter):
             module.add(ti.SLShiftRightB32(dst=sgpr(stmp), src=size, shiftHex=0x1, comment="(size/2)"))
             module.add(ti.SSubU32(dst=sgpr(stmp), src0=sgpr(stmp), src1=0x1, comment="(size/2-1)"))
           else:
+<<<<<<< HEAD
             module.add(ti.SSubU32(dst=sgpr(stmp), src0=size, src1=0x1, comment="(size-1)"))
+=======
+            if tP["isA"] and tP["isSwizzled"]:
+              if idx in kernel["ProblemType"]["IndicesSummation"]:
+                module.addModuleAsFlatItems(self.alignTo(stmp, "SizeL", 32))
+                module.add(SSubU32(dst=sgpr(stmp), src0=sgpr(stmp), src1=1, comment="(size-1)"))
+              elif idx == kernel["ProblemType"]["Index0"]:
+                module.addModuleAsFlatItems(self.alignTo(stmp, "SizeI", 16))
+                module.add(SSubU32(dst=sgpr(stmp), src0=sgpr(stmp), src1=1, comment="(size-1)"))
+              else:
+                module.add(SSubU32(dst=sgpr(stmp), src0=size, src1=0x1, comment="(size-1)"))
+            else:
+              module.add(SSubU32(dst=sgpr(stmp), src0=size, src1=0x1, comment="(size-1)"))
+>>>>>>> remove-global-working-path
           module.addModuleAsFlatItems(self.s_mul_u64_u32(sgpr(stmp), sgpr(stmp+1), stride, \
                       sgpr(stmp), "stride x (size-1)"))
           module.add(ti.SAddU32(dst=sgpr(tensor2dSize0), src0=sgpr(tensor2dSize0), src1=sgpr(stmp+0), comment="sum tensor size"))
@@ -3083,6 +3168,9 @@ class KernelWriterAssembly(KernelWriter):
     module = Module("graAddresses")
     tc = tP["tensorChar"]
     graIdx = 0
+
+    if tP["isA"] and tP["isSwizzled"]:
+      module.addModuleAsFlatItems(self.alignTo("StrideA0I", "StrideA0I", 32))
 
     if kernel["BufferLoad"]:
       # maxAddrSgpr = size[n] * stride[n-1]
@@ -3321,8 +3409,18 @@ class KernelWriterAssembly(KernelWriter):
       with self.allocTmpSgpr(1) as tmpSgprInfo:
         tmpSgpr = tmpSgprInfo.idx
         # Calc numKr, TODO- 32 should be MI_K * 2
+<<<<<<< HEAD
         module.add(ti.SLShiftRightB32(dst=sgpr(tmpSgpr), shiftHex=hex(log2(32)), src=sgpr("SizesSum"),  comment="SWZ: numKr = DimK / 32"))
         module.add(ti.VMulU32U24(dst=vgpr(qReg), src0=sgpr(tmpSgpr), src1=vgpr(qReg), comment="SWZ: wave-id *= numKr"))
+=======
+        swizzleStrideVal = 32
+        module.addComment(f"Align to {swizzleStrideVal}")
+        module.add(SAddU32(sgpr(tmpSgpr), sgpr("SizesSum"), swizzleStrideVal-1))
+        module.add(SLShiftRightB32(dst=sgpr(tmpSgpr), shiftHex=hex(log2(swizzleStrideVal)), src=sgpr(tmpSgpr),  comment="SWZ: numKr = DimK / 32"))
+        WvG_M = kernel["MIWaveGroup"][0]
+        module.add(VAndB32(dst=vgpr(qReg), src0=hex(WvG_M-1), src1=vgpr(qReg), comment="SWZ: wave_id (along_M) %= MIWG[0]"))
+        module.add(VMulU32U24(dst=vgpr(qReg), src0=sgpr(tmpSgpr), src1=vgpr(qReg), comment="SWZ: wave_id (along_M) *= numKr"))
+>>>>>>> remove-global-working-path
     elif isDTVAB:
       # offset calculation for DirectToVgpr
       # call function from LraTileAssignmentMFMA for DirectToVgpr
@@ -3469,10 +3567,15 @@ class KernelWriterAssembly(KernelWriter):
       module.add(mathti.vectorStaticDivide(tmpVgpr, destVgpr, kernel["LdsBlockSizePerPad%s"%tc], tmpVgprRes, \
         "padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
       with self.allocTmpSgpr(1) as tmpSgprInfo:
+<<<<<<< HEAD
         module.add(mathti.staticMultiply(vgpr(tmpVgpr), vgpr(tmpVgpr), kernel["LdsPad%s"%tc] * tP["bpeDS"], tmpSgprInfo, \
           "padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
       module.add(ti.VAddU32(dst=vgpr(destVgpr), src0=vgpr(tmpVgpr), src1=vgpr(destVgpr), \
         comment="add padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
+=======
+        module.add(staticMultiplyAdd(vgpr(destVgpr), vgpr(tmpVgpr), kernel["LdsPad%s"%tc] * tP["bpeDS"], vgpr(destVgpr), tmpSgprInfo, \
+          "padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
+>>>>>>> remove-global-working-path
       self.vgprPool.checkIn(tmpVgpr)
 
     if tP["isB"]:
@@ -3631,10 +3734,15 @@ class KernelWriterAssembly(KernelWriter):
         module.add(mathti.vectorStaticDivide(rReg, "LocalReadAddr%s"%tc, kernel["LdsBlockSizePerPad%s"%tc], tmpVgprRes, \
           "Final Offset: padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
         with self.allocTmpSgpr(1) as tmpSgprInfo:
+<<<<<<< HEAD
           module.add(mathti.staticMultiply(vgpr(rReg), vgpr(rReg), kernel["LdsPad%s"%tc] * tP["bpeDS"], tmpSgprInfo, \
             "Final Offset: padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
         module.add(ti.VAddU32(dst=vgpr("LocalReadAddr%s"%tc), src0=vgpr(rReg), src1=vgpr("LocalReadAddr%s"%tc), \
           comment="Final Offset: add padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
+=======
+          module.add(staticMultiplyAdd(vgpr("LocalReadAddr%s"%tc), vgpr(rReg), kernel["LdsPad%s"%tc] * tP["bpeDS"], vgpr("LocalReadAddr%s"%tc), tmpSgprInfo, \
+                                       "Final Offset: padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
+>>>>>>> remove-global-working-path
 
       # release resources
       self.vgprPool.checkIn(tmpVgpr)
@@ -3679,10 +3787,15 @@ class KernelWriterAssembly(KernelWriter):
           rReg    = self.vgprPool.checkOut(1) # remainder, unused here
           module.add(mathti.vectorStaticDivide(rReg, "LocalReadAddr%s"%tc, kernel["LdsBlockSizePerPad%s"%tc], tmpSgpr, \
             "Final Offset: padding %u per block %u" % (kernel["LdsPad%s"%tc], kernel["LdsBlockSizePerPad%s"%tc])))
+<<<<<<< HEAD
           module.add(mathti.staticMultiply(vgpr(rReg), vgpr(rReg), kernel["LdsPad%s"%tc] * tP["bpe"], tmpSgprInfo, \
             "Final Offset: padding %u per block %u" % (kernel["LdsPad%s"%tc], kernel["LdsBlockSizePerPad%s"%tc])))
           module.add(ti.VAddU32(dst=vgpr("LocalReadAddr%s"%tc), src0=vgpr(rReg), src1=vgpr("LocalReadAddr%s"%tc), \
             comment="Final Offset: add padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
+=======
+          module.add(staticMultiplyAdd(vgpr("LocalReadAddr%s"%tc), vgpr(rReg), kernel["LdsPad%s"%tc] * tP["bpe"], vgpr("LocalReadAddr%s"%tc), tmpSgprInfo, \
+            "Final Offset: padding %u per block %u" % (kernel["LdsPad%s"%tc] * tP["bpeDS"], kernel["LdsBlockSizePerPad%s"%tc])))
+>>>>>>> remove-global-working-path
           self.vgprPool.checkIn(rReg)
     return module
 
@@ -5335,9 +5448,15 @@ class KernelWriterAssembly(KernelWriter):
               else:
                 shiftK.add(ti.VAddU32(vgpr(kReg), vgpr(kReg), numMIInput//numSet0GroupA, "add part of K"))
               if kernel["LocalSplitU"] > 1:
+<<<<<<< HEAD
                 shiftK.add(ti.SMinI32(dst=sgpr(loopCntSgpr), src0=sgpr(loopCounterName), src1=sgpr("LSUTailLoopOffset"), comment="check lsu bound"))
               shiftK.add(ti.VCmpGEI32(dst=sgpr(tmpSgprX2, self.states.laneSGPRCount), src0=vgpr(kReg), src1=sgpr(loopCntSgpr), comment="check K index >= Size L"))
             # if A is swizzled, then no need to do this since MatB will be set to 0
+=======
+                shiftK.add(SMinI32(dst=sgpr(loopCntSgpr), src0=sgpr(loopCounterName), src1=sgpr("LSUTailLoopOffset"), comment="check lsu bound"))
+              shiftK.add(VCmpGEI32(dst=sgpr(tmpSgprX2, self.states.laneSGPRCount), src0=vgpr(kReg), src1=sgpr(loopCntSgpr), comment="check K index >= Size L"))
+
+>>>>>>> remove-global-working-path
             if not tPA["isSwizzled"]:
               for bk in range(0, vgprPerSet0Group):
                 for a in range(0, kernel["MIWaveTileA"]):
@@ -8126,8 +8245,13 @@ class KernelWriterAssembly(KernelWriter):
 
     module.addSpaceLine()
 
+<<<<<<< HEAD
     module.add(ti.SMovB32(dst=sgpr("SrdTD+3"), src="Srd127_96", comment="Set bits 127_96 in post-loop SRD"))
     module.add(ti.SMovB32(dst=sgpr("SrdTD+2"), src=hex(0x80000000)))
+=======
+    module.add(SMovB32(dst=sgpr("SrdTD+3"), src="Srd127_96", comment="Set bits 127_96 in post-loop SRD"))
+    module.add(SMovB32(dst=sgpr("SrdTD+2"), src="BufferOOB"))
+>>>>>>> remove-global-working-path
 
     module.add(ti.SMulI32(dst=sgpr(tmpspgr0), src0="MT1", src1=sgpr("WorkGroup1"), comment=""))
     module.add(ti.SMulHIU32(dst=sgpr(tmpspgr+1), src0=sgpr(tmpspgr0), src1=sgpr("StrideC1J"), comment=""))
@@ -8328,10 +8452,16 @@ class KernelWriterAssembly(KernelWriter):
   def allocPostLoopSrd(self, ch: str):
     module = Module("allocPostLoopSrd")
     # Buffer-load uses one base read pointer stored in the SRD - set it here:
+<<<<<<< HEAD
     module.add(ti.SMovB32(dst=sgpr("Srd%s+0"%ch), src=sgpr("Address%s+0"%ch), comment="init SRD base address (lower)" ))
     module.add(ti.SMovB32(dst=sgpr("Srd%s+1"%ch), src=sgpr("Address%s+1"%ch), comment="init SRD base address (upper) + other fields" ))
     module.add(ti.SMovB32(dst=sgpr("Srd%s+2"%ch), src=hex(0x80000000)))
     module.add(ti.SMovB32(dst=sgpr("Srd%s+3"%ch), src="Srd127_96", comment="Set bits 127_96 in post-loop SRD"))
+=======
+    module.add(SMovB64(dst=sgpr("Srd%s+0"%ch, 2), src=sgpr("Address%s+0"%ch, 2), comment="init SRD base address" ))
+    module.add(SMovB32(dst=sgpr("Srd%s+2"%ch), src="BufferOOB"))
+    module.add(SMovB32(dst=sgpr("Srd%s+3"%ch), src="Srd127_96", comment="Set bits 127_96 in post-loop SRD"))
+>>>>>>> remove-global-working-path
     module.addSpaceLine()
     return module
 
@@ -10982,8 +11112,12 @@ class KernelWriterAssembly(KernelWriter):
       assert tmpSgprRes.size >= 4
       tmpSgpr = tmpSgprRes.idx
       #Calculate tensor 2d size
+<<<<<<< HEAD
       module.add(ti.SMovB32(dst=sgpr(tmpSgpr+0), src=0x1, comment="Init tensor size"))
       module.add(ti.SMovB32(dst=sgpr(tmpSgpr+1), src=0x0, comment="Init tensor size"))
+=======
+      module.add(SMovB64(dst=sgpr(tmpSgpr+0, 2), src=0x1, comment="Init tensor size"))
+>>>>>>> remove-global-working-path
       indices = [i for i in range(kernel["ProblemType"]["NumIndicesC"])]
       numDim = len(indices)
       for i in range(0, numDim):

@@ -27,7 +27,6 @@ from ..Common import globalParameters
 from ..Utils import DataDirection
 from ..TensileInstructions.Code import SignatureBase
 from ..TensileInstructions.Enums import SignatureValueKind as SVK
-from ..TensileInstructions.Utils import getCOVFromParam
 from ..Activation import ActivationType
 
 from dataclasses import dataclass, field
@@ -128,7 +127,7 @@ class SignatureDefault(Signature):
         sgprWgZ = 1 if kernel["ProblemType"]["NumIndicesC"] > 2 else 0
         signature = SignatureBase(kernelName=writer.states.kernelName,
                                     kernArgsVersion=kernel["InternalSupportParams"]["KernArgsVersion"],
-                                    codeObjectVersion=getCOVFromParam(kernel["CodeObjectVersion"]),
+                                    codeObjectVersion=kernel["CodeObjectVersion"],
                                     groupSegmentSize=group_segment_size,
                                     sgprWorkGroup=[1, 1, sgprWgZ],
                                     vgprWorkItem=0,

@@ -2,7 +2,7 @@
  *
  * MIT License
  *
- * Copyright (C) 2022-2023 Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -371,7 +371,7 @@ namespace TensileLite
                 if(indices[i] >= m_sizes[i])
                     throw std::runtime_error("Index out of bounds.");
 
-            return std::inner_product(indices.begin(), indices.end(), m_strides.begin(), 0);
+            return std::inner_product(indices.begin(), indices.end(), m_strides.begin(), (size_t)0);
         }
 
         template <typename T>
@@ -385,7 +385,7 @@ namespace TensileLite
                 if(*i.first >= *i.second)
                     throw std::runtime_error("Index out of bounds.");
 
-            return std::inner_product(indices.begin(), indices.end(), m_strides.begin(), 0);
+            return std::inner_product(indices.begin(), indices.end(), m_strides.begin(), (size_t)0);
         }
 
         template <class... Ts,

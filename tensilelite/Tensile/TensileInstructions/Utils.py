@@ -20,15 +20,12 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-import os
 import random
-import shlex
 import string
 from functools import lru_cache
 from math import log
-from typing import List, Tuple
+from typing import Tuple
 
-from .Base import getCOVFromParam, getGfxName
 from .Code import Module
 from .Containers import HolderContainer, RegisterContainer, RegName
 from .DataType import DataType
@@ -235,33 +232,3 @@ def replaceHolder(module, dst):
 
     return module
 
-def getAsmCompileArgs(assemblerPath: str, codeObjectVersion: str, \
-    isa: Tuple[int, int, int], wavefrontSize: int, \
-    sourceFileName: str, objectFileName: str, *moreArgs, debug: bool=False):
-    launcher = shlex.split(os.environ.get('Tensile_ASM_COMPILER_LAUNCHER', ''))
-    rv = launcher + [assemblerPath, '-x', 'assembler', '-target', 'amdgcn-amd-amdhsa']
-
-    rv += ['-mcode-object-version=%s'% getCOVFromParam(codeObjectVersion)]
-
-    rv += ['-mcpu=' + getGfxName(isa)]
-
-    if wavefrontSize == 64:
-        rv += ['-mwavefrontsize64']
-    else:
-        rv += ['-mno-wavefrontsize64']
-
-    rv += moreArgs
-
-    if debug:
-        rv += ['-g',]
-
-    rv += ['-c', '-o', objectFileName, sourceFileName]
-    return rv
-
-def getAsmLinkCodeObjectArgs(assemblerPath: str, objectFileNames: List[str], \
-    coFileName: str, buildIdKind: str, *moreArgs):
-    rv = [assemblerPath, '-target', 'amdgcn-amd-amdhsa']
-    rv += ["-Xlinker", "--build-id=%s"%(buildIdKind)]
-    rv += moreArgs
-    rv += ['-o', coFileName] + objectFileNames
-    return rv
