@@ -23,15 +23,17 @@
 ################################################################################
 
 from . import Common
-from .TensileInstructions import Item, TensileInstructions, slash50, replaceHolder, \
-                          KernelBody, Module, StructuredModule, TextBlock, Dump, LabelManager, \
-                          RegisterPool, Assert, fastdeepcopy, TensileInstructionsPassOptions, \
-                          TensileInstructionsPass, \
-                          SLongBranchPositive, SBranch, SCBranchSCC0, SCBranchSCC1
-from .TensileInstructions.Instructions import *
-from .KernelWriterModules import *
+from .TensileInstructions import Instructions as ti
+from .TensileInstructions import ExtInstructions as exti
+from .TensileInstructions.Base import fastdeepcopy, TensileInstructions
+from .TensileInstructions.Code import Module, Label, TextBlock, KernelBody, StructuredModule
+from .TensileInstructions.Containers import RegisterContainer
+from .TensileInstructions.Pass import TensileInstructionsPassOptions, TensileInstructionsPass
+from .TensileInstructions.Utils import replaceHolder, LabelManager
+from .TensileInstructions.RegisterPool import RegisterPool
+from .KernelWriterModules import wait, syncThreads
 from .TensilePass import TensilePass, TensilePassOptions
-from .Common import globalParameters, CHeader, print1, printWarning, roundUp, Backup, print2, printExit
+from .Common import globalParameters, roundUp, printExit
 from .Component import Component, LraTileProperties
 from .Components.Signature import UserArgumentsInfo
 from .CustomKernels import isCustomKernelConfig
@@ -47,7 +49,7 @@ import shutil
 import sys
 import collections
 from dataclasses import dataclass, field
-from typing import Dict, NamedTuple, Tuple, Type
+from typing import Dict, NamedTuple, Tuple, Type, Optional, List
 from math import ceil
 
 # Make const values immutable
@@ -173,7 +175,7 @@ class StateValues:
   numReadsPerUnrollMetadata: int         = 0
 
   # KernelWriterAssembly
-  mixinst: Optional[Type[Instruction]]   = None
+  mixinst: Optional[Type[ti.Instruction]]   = None
   globalReadIncsUseVgpr: bool            = False
   groOffsetInMacroTile: int              = 0
   use64bShadowLimit: bool                = True
@@ -313,7 +315,7 @@ class StateVgprs:
   coutRowPtrE: int = -1
   coutRowPtrD: int = -1
 
-  # FlatStore
+  # ti.FlatStore
   addrE: int    = -1
   addrD: int    = -1
   addrC: int    = -1
@@ -467,7 +469,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
     self.db["AssertOnSgprOverflow"] = False
     self.db["PrintStoreRegisterDb"] = False
 
-    self.dumpData = Dump("DebugKernelItems", "AddressDbg", self.db["DebugKernelMaxItems"], \
+    self.dumpData = exti.Dump("DebugKernelItems", "AddressDbg", self.db["DebugKernelMaxItems"], \
       globalParameters["DebugKernel"])
     self.labels = LabelManager()
 
@@ -551,7 +553,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
   #   - Cannot be "" or None
   #   - may be empty Module if not waiting is desired (perhaps for debug)
   #   - may be multiple instructions (ConservativeWaitCnt)
-  #   - typically is a single SWaitCnt.  This routine will
+  #   - typically is a single ti.SWaitCnt.  This routine will
   #     modify the lgkmcnt to account for any scheduling decisions.
   #     If this is not desired, add the waitCnt to pointerCode and
   #     set waitCode to an empty module
@@ -567,7 +569,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
     globalReadCode = fastdeepcopy(self.codes.perIterGlobalRead[iteration])
     localWriteCode = self.codes.perIterLocalWrite[iteration]
     isBarrier = kernel["LoopIters"] - self.states.numItersPLR
-    hasLocalRead = localReadCode.countType(LocalReadInstruction)
+    hasLocalRead = localReadCode.countType(ti.LocalReadInstruction)
 
     # Default schedule is other, local reads, then local writes:
     if self.states.scheduleIterAlg==0:
@@ -588,14 +590,14 @@ class KernelWriter(metaclass=abc.ABCMeta):
       #import pdb
       #pdb.set_trace()
       # simple algorithm - do half the reads first:
-      readsToSchedule = localReadCode.countType(LocalReadInstruction) / 2
+      readsToSchedule = localReadCode.countType(ti.LocalReadInstruction) / 2
       #localReadCode.prettyPrint()
       readItems = localReadCode.flatitems()
       while readItems:
         item = readItems.pop(0)
         #print "readsToSchedule=", readsToSchedule, "item=", item
         iterCode.add(item)
-        readsThisItem = item.countType(LocalReadInstruction)
+        readsThisItem = item.countType(ti.LocalReadInstruction)
         if readsThisItem:
           assert readsThisItem==1, "Scheduler assumes 1 read per item"
           readsToSchedule = readsToSchedule - 1
@@ -669,7 +671,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
 
       macIterItems = macIterCode.flatitems()
       # pop the first code which is s_nop 1 for packing
-      item = macIterItems.pop(0) if isinstance(macIterItems[0], SNop) else None
+      item = macIterItems.pop(0) if isinstance(macIterItems[0], ti.SNop) else None
 
       numMfmaPerIter = self.states.numMfmaPerIter
       curPackIdx = 0
@@ -711,30 +713,30 @@ class KernelWriter(metaclass=abc.ABCMeta):
                 iterCode.add(packItems.pop(0))
                 curPackIdx += 1
             else:
-              iterCode.add(SNop(waitState=0, comment="VALU packing writes to be consumed by matrix instruction"))
+              iterCode.add(ti.SNop(waitState=0, comment="VALU packing writes to be consumed by matrix instruction"))
               curPackIdx += 1
         if i == 0:
           if not packItems:
             tmpVgpr = self.vgprPool.checkOut(1)
-            iterCode.add(VMovB32(dst="v%u"%(tmpVgpr), src="0x0", comment="valu operation to have different priority"))
+            iterCode.add(ti.VMovB32(dst="v%u"%(tmpVgpr), src="0x0", comment="valu operation to have different priority"))
             self.vgprPool.checkIn(tmpVgpr)
-          iterCode.add(SSetPrior(prior=3, comment="Raise priority while processing macs"))
+          iterCode.add(ti.SSetPrior(prior=3, comment="Raise priority while processing macs"))
         item = macIterItems.pop(0)
         iterCode.add(item)
       while macIterItems:
         iterCode.add(macIterItems.pop(0))
 
-      iterCode.add(SSetPrior(prior=1, comment="Raise priority while processing macs"))
+      iterCode.add(ti.SSetPrior(prior=1, comment="Raise priority while processing macs"))
       if kernel["1LDSBuffer"]:
         barrier = Module()
         barrier.addComment0("1 LDS buffer: read-sync-write")
-        barrier.add(SWaitCnt(lgkmcnt=0, comment=""))
-        barrier.add(SBarrier())
+        barrier.add(ti.SWaitCnt(lgkmcnt=0, comment=""))
+        barrier.add(ti.SBarrier())
         iterCode.add(barrier)
       iterCode.add(localWriteCode)
       iterCode.add(pointerLWCode)
       iterCode.add(pointerLRCode)
-      iterCode.add(SSetPrior(prior=2, comment="Raise priority while processing macs"))
+      iterCode.add(ti.SSetPrior(prior=2, comment="Raise priority while processing macs"))
       pass
     elif self.states.scheduleIterAlg == 3:
       iterCode.addComment0(" grEndMfmaIndex:%u, lwStartMfmaIndex:%u, lwEndMfmaIndex:%u "\
@@ -914,7 +916,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
       # remove s_nop for packing
       # we will add s_nop if needed
       if macIterItems:
-        if isinstance(macIterItems[0], SNop):
+        if isinstance(macIterItems[0], ti.SNop):
           macIterItems.pop(0)
 
       ####
@@ -935,7 +937,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
                 for readsIter in range(vacancy["atIter"], iteration + self.states.numItersPLR):
                   if (vacancy["atMfmaIndex"] % numMfmaPerIter == 0 or readsIter != vacancy["atIter"]) and \
                       (vacancy["noReadsAtThisIter"] or readsIter <= vacancy["atIter"] + self.states.numItersPLR):
-                    if isinstance(self.localReadsWait[readsIter], SWaitCnt):
+                    if isinstance(self.localReadsWait[readsIter], ti.SWaitCnt):
                       self.localReadsWait[readsIter].lgkmcnt += 1
                       # This line is added for backward compatibility
                       self.localReadsWait[readsIter].vscnt = self.localReadsWait[readsIter].vmcnt \
@@ -964,7 +966,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
             if len(lrItems) <= n:
               break
             item = lrItems[n]
-            if not isinstance(item, DSLoadB128):
+            if not isinstance(item, ti.DSLoadB128):
               continue
             if len(fifo) < (16 / numWaves):
               fifo.append(currentMFMA)
@@ -977,7 +979,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
           if len(lrItems) <= n:
             break
           item = lrItems[n]
-          if not isinstance(item, DSLoadB128):
+          if not isinstance(item, ti.DSLoadB128):
             numToBeIssued += 1
             continue
           # The FIFO length is 16 so that each wave has 16/numWaves buffer.
@@ -996,24 +998,24 @@ class KernelWriter(metaclass=abc.ABCMeta):
 
       oneBufferScheduling = kernel["1LDSBuffer"] or kernel["DirectToLdsA"] or kernel["DirectToLdsB"]
 
-      def hasDependency(lr: DSLoadInstruction, inst: Instruction) -> bool:
+      def hasDependency(lr: ti.DSLoadInstruction, inst: ti.Instruction) -> bool:
         lrDataReg = lr.dst
 
-        if isinstance(inst, MFMAInstruction):
+        if isinstance(inst, ti.MFMAInstruction):
           srcRegs = [inst.a, inst.b,]
-        elif isinstance(inst, SMFMAInstruction):
+        elif isinstance(inst, ti.SMFMAInstruction):
           srcRegs = [inst.a, inst.b, inst.metadata]
         else:
           srcRegs = inst.srcs
 
         return any((lrDataReg & r) for r in srcRegs if isinstance(r, RegisterContainer))
 
-      def hasAnyDependency(lr: DSLoadInstruction, insts: List[Instruction]):
+      def hasAnyDependency(lr: ti.DSLoadInstruction, insts: List[ti.Instruction]):
         return any(hasDependency(lr, inst) for inst in insts)
 
       for i in range(numMfmaPerIter):
         mfmaIndex = iteration * numMfmaPerIter + i
-        insertInst = iterCode.countType(Instruction)
+        insertInst = iterCode.countType(ti.Instruction)
         iterCode.addComment0(" mfmaIndex:%u " %(mfmaIndex))
 
         ####
@@ -1026,9 +1028,9 @@ class KernelWriter(metaclass=abc.ABCMeta):
           # with PrefetchLocalRead, localreads can interleave with mfma
           if self.states.numItersPLR:
             # take ds_write into account to schedule ds_read, assume A and B localwrite have same width (TLDS=1)
-            if (mfmaIndex >= self.states.lwStartMfmaIndex) and not globalReadCode.countType(GlobalReadInstruction):
+            if (mfmaIndex >= self.states.lwStartMfmaIndex) and not globalReadCode.countType(ti.GlobalReadInstruction):
               for j in range(min(len(writeItems),self.states.numLocalWriteModPerMfma)):
-                if writeItems[j].countType(LocalWriteInstruction):
+                if writeItems[j].countType(ti.LocalWriteInstruction):
                   latencyLeft -= (tPA["localWriteInstruction"].issueLatency*2)
             readLeftLROPT = 0
             for j in range(len(localReadItemsThisLoop)):
@@ -1050,7 +1052,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
             readLeft = checkLocalReadFIFOFull(mfmaIndex, self.localReadThisLoopFIFO, localReadItemsThisLoop, readLeftLROPT, readLeftLREven)
           elif kernel["EnableMatrixInstruction"] and self.do["OptimizeNumItersPLR0"]:
             # if numItersPLR == 0, try to schedule local reads with instruction level prefetch.
-            mfmas = [mfma for mfma in macIterCode.flatitems() if isinstance(mfma, (MFMAInstruction, SMFMAInstruction,))]
+            mfmas = [mfma for mfma in macIterCode.flatitems() if isinstance(mfma, (ti.MFMAInstruction, ti.SMFMAInstruction,))]
             if i + 1 != numMfmaPerIter:
               numLocalReadShouldSchedule = 0
               # prefetch load for next wave tile along M since we re-use B first.
@@ -1127,7 +1129,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
         # schedule remaining globalReadInst
         if mfmaIndex == self.states.grEndMfmaIndex:
           while globalReadCode.items() and \
-              (globalReadCode.countType(GlobalReadInstruction) or kernel["PrefetchGlobalRead"] == 2):
+              (globalReadCode.countType(ti.GlobalReadInstruction) or kernel["PrefetchGlobalRead"] == 2):
             loadModule = globalReadCode.items().pop(0)
             iterCode.add(loadModule)
         # schedule remaining globalReadIncInst
@@ -1142,8 +1144,8 @@ class KernelWriter(metaclass=abc.ABCMeta):
         if kernel["1LDSBuffer"] and mfmaIndex == self.states.sync1LdsMfmaIndex:
           barrier = Module()
           barrier.addComment0("1 LDS buffer: read-sync-write")
-          barrier.add(SWaitCnt(lgkmcnt=0, comment=""))
-          barrier.add(SBarrier())
+          barrier.add(ti.SWaitCnt(lgkmcnt=0, comment=""))
+          barrier.add(ti.SBarrier())
           iterCode.add(barrier)
 
         if kernel["StorePriorityOpt"]:
@@ -1164,29 +1166,29 @@ class KernelWriter(metaclass=abc.ABCMeta):
             if (mfmaIndex == startIndex or withGL and mfmaIndex == self.states.syncPlrMfmaIndex+1):
               flagInsert = True
           if flagInsert:
-            iterCode.add(SSetPrior(prior=3, comment="store optimization"))
+            iterCode.add(ti.SSetPrior(prior=3, comment="store optimization"))
 
         if (mfmaIndex >= self.states.lwStartMfmaIndex):
           for j in range(self.states.numLocalWriteModPerMfma):
             # in case there are localWrite and globalread in same iteration
             # we need to make sure globalRead before localWrite
-            if writeItems and not globalReadCode.countType(GlobalReadInstruction):
+            if writeItems and not globalReadCode.countType(ti.GlobalReadInstruction):
               writeItem = writeItems.pop(0)
               iterCode.add(writeItem)
               # if there is localWrite at first mfma, need to skip it in waitcnt.
               if i == 0:
-                skipLocalWriteWaitcnt += writeItem.countType(LocalWriteInstruction) + writeItem.countType(DSStoreB256)
+                skipLocalWriteWaitcnt += writeItem.countType(ti.LocalWriteInstruction) + writeItem.countType(ti.DSStoreB256)
               if not localReadItemsThisLoop:
-                self.states.perIterLocalWriteCanSkip[iteration] += writeItem.countType(LocalWriteInstruction) + writeItem.countType(DSStoreB256)
+                self.states.perIterLocalWriteCanSkip[iteration] += writeItem.countType(ti.LocalWriteInstruction) + writeItem.countType(ti.DSStoreB256)
         if mfmaIndex == self.states.lwEndMfmaIndex:
           while writeItems:
             writeItem = writeItems.pop(0)
             # generate all remaining pre code before the first Store C
             iterCode.add(writeItem)
             if i == 0:
-              skipLocalWriteWaitcnt += writeItem.countType(LocalWriteInstruction) + writeItem.countType(DSStoreB256)
+              skipLocalWriteWaitcnt += writeItem.countType(ti.LocalWriteInstruction) + writeItem.countType(ti.DSStoreB256)
             if not localReadItemsThisLoop:
-              self.states.perIterLocalWriteCanSkip[iteration] += writeItem.countType(LocalWriteInstruction) + writeItem.countType(DSStoreB256)
+              self.states.perIterLocalWriteCanSkip[iteration] += writeItem.countType(ti.LocalWriteInstruction) + writeItem.countType(ti.DSStoreB256)
 
         ####
         # scheduled pointer
@@ -1240,25 +1242,25 @@ class KernelWriter(metaclass=abc.ABCMeta):
         ####
         if self.states.numItersPLR == 0 and kernel["EnableMatrixInstruction"] and self.do["OptimizeNumItersPLR0"]:
           lgkmcnt = -1
-          mfmas = [mfma for mfma in macIterCode.flatitems() if isinstance(mfma, (MFMAInstruction, SMFMAInstruction,))]
+          mfmas = [mfma for mfma in macIterCode.flatitems() if isinstance(mfma, (ti.MFMAInstruction, ti.SMFMAInstruction,))]
           ## To support do["MAC"] is False
           mfma = [mfmas[i],] if len(mfmas) > 0 else []
           instsToCheck = mfma + packItems
           numDsInsts = 0
           lastLgkmCnt = -1
-          for ds in filter(lambda j: isinstance(j, (DSLoadInstruction, DSStoreInstruction, SWaitCnt)), reversed(prevIterCode.flatitems() + iterCode.flatitems())):
-            if isinstance(ds, DSLoadInstruction) and hasAnyDependency(ds, instsToCheck):
+          for ds in filter(lambda j: isinstance(j, (ti.DSLoadInstruction, ti.DSStoreInstruction, ti.SWaitCnt)), reversed(prevIterCode.flatitems() + iterCode.flatitems())):
+            if isinstance(ds, ti.DSLoadInstruction) and hasAnyDependency(ds, instsToCheck):
               break
 
-            if isinstance(ds, DSLoadInstruction) and not hasAnyDependency(ds, instsToCheck) or isinstance(ds, DSStoreInstruction):
+            if isinstance(ds, ti.DSLoadInstruction) and not hasAnyDependency(ds, instsToCheck) or isinstance(ds, ti.DSStoreInstruction):
               numDsInsts += 1
-            elif isinstance(ds, SWaitCnt):
+            elif isinstance(ds, ti.SWaitCnt):
               if ds.lgkmcnt >= 0 and lastLgkmCnt == -1:
                 lastLgkmCnt = ds.lgkmcnt + numDsInsts
 
           if lastLgkmCnt != numDsInsts:
             if lastLgkmCnt == -1 or (lastLgkmCnt >= 0 and lastLgkmCnt > numDsInsts):
-              waitDsRead = SWaitCnt(lgkmcnt=numDsInsts, comment="Wait for dependent lr")
+              waitDsRead = ti.SWaitCnt(lgkmcnt=numDsInsts, comment="Wait for dependent lr")
               iterCode.add(waitDsRead)
         else:
           if kernel["UnrollMajorLDSB"] and not (kernel["ProblemType"]["DataTypeB"].isFloat8() and kernel["ConvertAfterDS"]):
@@ -1321,7 +1323,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
               iterCode.add(packItems.pop(0))
               curPackIdx += 1
             else:
-              iterCode.add(SNop(waitState=1, comment="VALU packing writes to be consumed by matrix instruction"))
+              iterCode.add(ti.SNop(waitState=1, comment="VALU packing writes to be consumed by matrix instruction"))
               curPackIdx += 1
               break
         if i == numMfmaPerIter - 1:
@@ -1332,9 +1334,9 @@ class KernelWriter(metaclass=abc.ABCMeta):
         # scheduled mfma dependency
         ####
         if mfmaIndex > 0:
-          currentInsertInst = iterCode.countType(Instruction) - insertInst
+          currentInsertInst = iterCode.countType(ti.Instruction) - insertInst
           if currentInsertInst < self.states.miDependency:
-            iterCode.add(SNop(waitState=(self.states.miDependency-currentInsertInst-1), comment="Dependency"))
+            iterCode.add(ti.SNop(waitState=(self.states.miDependency-currentInsertInst-1), comment="Dependency"))
 
         ####
         # scheduled mfma
@@ -1358,13 +1360,13 @@ class KernelWriter(metaclass=abc.ABCMeta):
                (not withGL) and mfmaIndex == (kernel["LoopIters"] * numMfmaPerIter // 2 - 1):
               flagInsert = True
           if flagInsert:
-            iterCode.add(SSetPrior(prior=0, comment="store optimization"))
+            iterCode.add(ti.SSetPrior(prior=0, comment="store optimization"))
       while macIterItems:
         iterCode.add(macIterItems.pop(0))
     else:
       assert 0, "Unsupported scheduleIterAlg=%u"%self.states.scheduleIterAlg
 
-    if isinstance(waitCode, SWaitCnt):
+    if isinstance(waitCode, ti.SWaitCnt):
 
       # Set the waitCount, based on the new iter schedule
       lgkmcnt = waitCode.lgkmcnt
@@ -1415,13 +1417,13 @@ class KernelWriter(metaclass=abc.ABCMeta):
         iterCode.addComment0("dataAtIterB=%u numReadsIterB=%u skipReadsIterB=%u readsPerIterB=%u" % (dataAtIterB, numReadsIterB, skipReadsIterB, self.states.numReadsPerIterB))
         if kernel["ScheduleIterAlg"] == 0 or kernel["ScheduleIterAlg"] == 1:
           for i in range (max(dataAtIterA,dataAtIterB),iteration+1):
-            localWrites += self.codes.perIterLocalWrite[i].countType(LocalWriteInstruction)
-            localWrites += self.codes.perIterLocalWrite[i].countType(DSStoreB256)
+            localWrites += self.codes.perIterLocalWrite[i].countType(ti.LocalWriteInstruction)
+            localWrites += self.codes.perIterLocalWrite[i].countType(ti.DSStoreB256)
         # ScheduleIterAlg=2, localwrite is after waitCnt, no need to count it's current iteration.
         if kernel["ScheduleIterAlg"] == 3:
           for i in range (max(dataAtIterA,dataAtIterB)+1,iteration):
-            localWrites += self.codes.perIterLocalWrite[i].countType(LocalWriteInstruction)
-            localWrites += self.codes.perIterLocalWrite[i].countType(DSStoreB256)
+            localWrites += self.codes.perIterLocalWrite[i].countType(ti.LocalWriteInstruction)
+            localWrites += self.codes.perIterLocalWrite[i].countType(ti.DSStoreB256)
           if kernel["ScheduleLocalWrite"] > 0:
             # current iteration localWrite count
             localWrites += skipLocalWriteWaitcnt
@@ -1432,8 +1434,8 @@ class KernelWriter(metaclass=abc.ABCMeta):
         lgkmcnt += localWrites
       else:
         for item in list(iterCode.items()):
-          localReads  = item.countType(LocalReadInstruction)
-          localWrites = item.countType(LocalWriteInstruction) + item.countType(DSStoreB256)
+          localReads  = item.countType(ti.LocalReadInstruction)
+          localWrites = item.countType(ti.LocalWriteInstruction) + item.countType(ti.DSStoreB256)
           if self.states.numItersPLR:
             # SQ: If PrefetchLocalRead = 1 and DepthU == LocalSplitU, then there is no double
             #  buffering and we must wait for all localReads but not localWrites.
@@ -1554,10 +1556,10 @@ class KernelWriter(metaclass=abc.ABCMeta):
         assert not forceNoTileCode
       # Shift here has two purposes:
       #  1. Ensure the loads are in-bounds to prevent fault.
-      #     BufferLoad uses the buffer limit hardware and does not require bounds checking for this case
+      #     ti.BufferLoad uses the buffer limit hardware and does not require bounds checking for this case
       #  2. Shift-left a wide vector load to ensure it is completely in-bounds.
       #     If this occurs we need to 'unshift' the C values (see shiftVectorComponents)
-      #     BufferLoad does support this shifting, but if GuaranteeNoPartial=1 then
+      #     ti.BufferLoad does support this shifting, but if GuaranteeNoPartial=1 then
       #     it can be guaranteed that no shifting is required.
       if not (kernel["BufferLoad"] and kernel["GuaranteeNoPartialA"]) and not forceNoTileCode:
         module.addComment1("global read addresses: shift a")
@@ -1695,7 +1697,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
   def noLoadLoopBody( self, kernel, tensorParametersA, tensorParametersB, pack, isOptNLL, isNGLL, NLLfirst, NLLlast, NLLindex=0, NLLnum=1):
     module = Module("noLoadLoopBody")
     expand = kernel["ExpandPointerSwap"]
-    lastuIdx = False
+    # lastuIdx = False# TODO (usused)
     pflr     = self.states.numItersPLR
     localWriteEndIter = kernel["LoopIters"] - self.states.numItersPLR - 1
     dsWriteBA = False
@@ -1906,7 +1908,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
         #  1) local write code in previous u (u-1) has local write (it comes with waitcnt vmcnt)
         countLW = 0
         if (u > 0):
-          countLW += self.codes.perIterLocalWrite[u-1].countType(LocalWriteInstruction)
+          countLW += self.codes.perIterLocalWrite[u-1].countType(ti.LocalWriteInstruction)
         if countLW == 0:
           module.add(self.getWaitcntCodeForDirectToVgpr(kernel, tensorParametersA, tensorParametersB, localWriteEndIter, u, isNLL=(not isNGLL), NLLlast=NLLlast))
 
@@ -1993,7 +1995,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
     module.add(self.closeSumAtLeastUnroll(kernel, tensorParametersA, tensorParametersB, prefetch=False, isOptNLL=isOptNLL, isNGLL=isNGLL, isNotLast=(NLLindex<(NLLnum-1))))
 
     if self.states.FactorDim == 3:
-      self.updateBranchPlaceHolder(module, ["skipOptNLL_placeholder", "skipOptNLL_scc1_placeholder"] , ["OptNLL_End", "OptNLL_End"], ["SCBranchSCC0", "SCBranchSCC1"])
+      self.updateBranchPlaceHolder(module, ["skipOptNLL_placeholder", "skipOptNLL_scc1_placeholder"] , ["OptNLL_End", "OptNLL_End"], ["ti.SCBranchSCC0", "ti.SCBranchSCC1"])
     return module
 
   ##############################################################################
@@ -2392,7 +2394,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
       # we need an extra barrier to ensure that the ds_reads (either for SR or MFMA) from previous iteration
       # have finished before we generate the prefetch for the next summation index.
       if kernel["StreamK"] > 0 or self.states.actualSummationLoops>1:
-        module.add(SBarrier(comment="For stream-k / persistent loop"))
+        module.add(ti.SBarrier(comment="For stream-k / persistent loop"))
 
       # local write
       self.preLoopLocalWriteCode = self.preLoopLocalWriteDo(kernel, tensorParametersA, tensorParametersB)
@@ -2510,13 +2512,13 @@ class KernelWriter(metaclass=abc.ABCMeta):
       module.add(self.loopBody( kernel, tensorParametersA, tensorParametersB, pack, 0, loopCopies, False , dsWriteBA=dsWriteBA, isDTVGRSecondBuf=isDTVGRSecondBuf, skipClose=True))
       loopLabelToNoGRloopAfterABLoop = Label("NoGRloopAfterABLoop", "" )
       loopCounter = self.loopCounter(kernel, self.states.unrollIdx)
-      module.add(SSubU32(dst=loopCounter, src0=loopCounter, \
+      module.add(ti.SSubU32(dst=loopCounter, src0=loopCounter, \
                          src1=1, \
                          comment="dec counterL"))
-      module.add(SCmpLeU32(src0=loopCounter, \
+      module.add(ti.SCmpLeU32(src0=loopCounter, \
                            src1=hex(2), \
                           comment="counteL<=2"))
-      module.add(SCBranchSCC1(labelName=loopLabelToNoGRloopAfterABLoop.getLabelName(), comment="exit LoopL" ))
+      module.add(ti.SCBranchSCC1(labelName=loopLabelToNoGRloopAfterABLoop.getLabelName(), comment="exit LoopL" ))
       # grBA check for UnrollLoopSwapGlobalReadOrder
       grBA = True if isULSGRO else False
       module.add(self.loopBody( kernel, tensorParametersA, tensorParametersB, pack, 1, loopCopies, True , grBA=grBA))
@@ -2914,7 +2916,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
     self.states.archCaps = self.ti.getArchCaps()
     self.states.regCaps  = self.ti.getRegCaps()
 
-    self.asmAssert = Assert(self.states.laneSGPRCount, kernel["WavefrontSize"], self.db["EnableAsserts"])
+    self.asmAssert = exti.Assert(self.states.laneSGPRCount, kernel["WavefrontSize"], self.db["EnableAsserts"])
 
     # Only assembly supports scheduling
     if kernel["KernelLanguage"] == "Assembly":
@@ -3252,9 +3254,9 @@ class KernelWriter(metaclass=abc.ABCMeta):
                         (kernel["_GlobalAccumulation"] == 'SingleBuffer')
 
     if self.states.asmCaps["v_fma_mix_f32"]:
-      self.states.mixinst = VFmaMixF32
+      self.states.mixinst = ti.VFmaMixF32
     elif self.states.asmCaps["v_mad_mix_f32"]:
-      self.states.mixinst = VMadMixF32
+      self.states.mixinst = ti.VMadMixF32
 
 
     self.states.bpeAB = int(self.states.bpr * kernel["ProblemType"]["DataType"].numRegisters())
@@ -3298,44 +3300,44 @@ class KernelWriter(metaclass=abc.ABCMeta):
     # name, numAddresses, numOffsets, offsetMultiplier, blockWidth, formatting):
     ########################################
     # Local Read
-    _ds_load_b128 = MemoryInstruction(DSLoadB128,  1, 1, 4, 4)
-    _ds_load2_b64 = MemoryInstruction(DSLoad2B64,  1, 2, 2, 2)
-    _ds_load_b64 = MemoryInstruction(DSLoadB64,    1, 1, 2, 2)
-    _ds_load2_b32 = MemoryInstruction(DSLoad2B32,  1, 2, 1, 1)
-    _ds_load_b32 = MemoryInstruction(DSLoadB32,    1, 1, 1, 1)
-    _ds_load_u16 = MemoryInstruction(DSLoadU16,    1, 1, 1, 0.5)
-    _ds_load_u8 = MemoryInstruction(DSLoadU8,      1, 1, 1, 0.25)
+    _ds_load_b128 = MemoryInstruction(ti.DSLoadB128,  1, 1, 4, 4)
+    _ds_load2_b64 = MemoryInstruction(ti.DSLoad2B64,  1, 2, 2, 2)
+    _ds_load_b64 = MemoryInstruction(ti.DSLoadB64,    1, 1, 2, 2)
+    _ds_load2_b32 = MemoryInstruction(ti.DSLoad2B32,  1, 2, 1, 1)
+    _ds_load_b32 = MemoryInstruction(ti.DSLoadB32,    1, 1, 1, 1)
+    _ds_load_u16 = MemoryInstruction(ti.DSLoadU16,    1, 1, 1, 0.5)
+    _ds_load_u8 = MemoryInstruction(ti.DSLoadU8,      1, 1, 1, 0.25)
     ########################################
     # Local Write
-    _ds_store_b256 = MemoryInstruction(DSStoreB256,  1, 1, 8, 8)
-    _ds_store_b128 = MemoryInstruction(DSStoreB128,  1, 1, 4, 4)
-    _ds_store2_b64 = MemoryInstruction(DSStore2B64,  1, 2, 2, 2)
-    _ds_store_b64 = MemoryInstruction(DSStoreB64,    1, 1, 2, 2)
-    _ds_store2_b32 = MemoryInstruction(DSStore2B32,  1, 2, 1, 1)
-    _ds_store_b32 = MemoryInstruction(DSStoreB32,    1, 1, 1, 1)
-    _ds_store_b16 = MemoryInstruction(DSStoreB16,    1, 1, 1, 0.5)
-    _ds_store_b8 = MemoryInstruction(DSStoreB8,      1, 1, 1, 0.25)
+    _ds_store_b256 = MemoryInstruction(ti.DSStoreB256,  1, 1, 8, 8)
+    _ds_store_b128 = MemoryInstruction(ti.DSStoreB128,  1, 1, 4, 4)
+    _ds_store2_b64 = MemoryInstruction(ti.DSStore2B64,  1, 2, 2, 2)
+    _ds_store_b64 = MemoryInstruction(ti.DSStoreB64,    1, 1, 2, 2)
+    _ds_store2_b32 = MemoryInstruction(ti.DSStore2B32,  1, 2, 1, 1)
+    _ds_store_b32 = MemoryInstruction(ti.DSStoreB32,    1, 1, 1, 1)
+    _ds_store_b16 = MemoryInstruction(ti.DSStoreB16,    1, 1, 1, 0.5)
+    _ds_store_b8 = MemoryInstruction(ti.DSStoreB8,      1, 1, 1, 0.25)
     ########################################
     # Global Read
-    _flat_load_b128 = MemoryInstruction(FlatLoadB128, 1, 0, 0, 4)
-    _flat_load_b64 = MemoryInstruction(FlatLoadB64,   1, 0, 0, 2)
-    _flat_load_b32 = MemoryInstruction(FlatLoadB32,   1, 0, 0, 1)
+    _flat_load_b128 = MemoryInstruction(ti.FlatLoadB128, 1, 0, 0, 4)
+    _flat_load_b64 = MemoryInstruction(ti.FlatLoadB64,   1, 0, 0, 2)
+    _flat_load_b32 = MemoryInstruction(ti.FlatLoadB32,   1, 0, 0, 1)
 
-    _buffer_load_b128 = MemoryInstruction(BufferLoadB128, 1, 0, 0, 4)
-    _buffer_load_b64 = MemoryInstruction(BufferLoadB64, 1, 0, 0, 2)
-    _buffer_load_b32 = MemoryInstruction(BufferLoadB32, 1, 0, 0, 1)
+    _buffer_load_b128 = MemoryInstruction(ti.BufferLoadB128, 1, 0, 0, 4)
+    _buffer_load_b64 = MemoryInstruction(ti.BufferLoadB64, 1, 0, 0, 2)
+    _buffer_load_b32 = MemoryInstruction(ti.BufferLoadB32, 1, 0, 0, 1)
     # generate half directly w/o using the format string to handle hi/lo correctly
-    _buffer_load_d16_b16 = MemoryInstruction(BufferLoadD16B16, 1, 0, 0, 0.5)
+    _buffer_load_d16_b16 = MemoryInstruction(ti.BufferLoadD16B16, 1, 0, 0, 0.5)
     # generate byte directly w/o using the format string to handle hi/lo correctly
-    _buffer_load_d16_u8 = MemoryInstruction(BufferLoadD16U8, 1, 0, 0, 0.25)
+    _buffer_load_d16_u8 = MemoryInstruction(ti.BufferLoadD16U8, 1, 0, 0, 0.25)
 
     self.buff_load_inst_offset_max = 4096
 
     ########################################
     # Global Write
-    _flat_store_b128 = MemoryInstruction(FlatStoreB128, 1, 0, 0, 4)
-    _flat_store_b64  = MemoryInstruction(FlatStoreB64,  1, 0, 0, 2)
-    _flat_store_b32  = MemoryInstruction(FlatStoreB32,  1, 0, 0, 1)
+    _flat_store_b128 = MemoryInstruction(ti.FlatStoreB128, 1, 0, 0, 4)
+    _flat_store_b64  = MemoryInstruction(ti.FlatStoreB64,  1, 0, 0, 2)
+    _flat_store_b32  = MemoryInstruction(ti.FlatStoreB32,  1, 0, 0, 1)
 
     ########################################
     # Available Memory Instructions per Architecture
@@ -3465,15 +3467,15 @@ class KernelWriter(metaclass=abc.ABCMeta):
     ####################################
     # num vgprs: global -> local elements
     self.states.a.numVgprG2L = 0
-    numVgprG2Local = 0
+    # numVgprG2Local = 0# TODO (usused)
     numVgprG2LAllocatedLocal = 0
 
     if not kernel["DirectToLdsA"] or self.do["KeepDirectToLdsAlloc"]:
       bpeMax = tensorParametersA["bpeDS"] if kernel["ConvertAfterDS"] else max(tensorParametersA["bpeGR"], tensorParametersA["bpe"])
       self.states.a.numVgprG2L = roundUp((kernel["NumLoadsCoalescedA"] * kernel["NumLoadsPerpendicularA"] * \
         kernel["GlobalReadVectorWidthA"] * bpeMax) / (float)(self.states.bpr))
-      numVgprG2Local = roundUp((kernel["NumLoadsCoalescedA"] * kernel["NumLoadsPerpendicularA"] * \
-        kernel["GlobalReadVectorWidthA"] * tensorParametersA["bpe"]) / (float)(self.states.bpr))
+      # numVgprG2Local = roundUp((kernel["NumLoadsCoalescedA"] * kernel["NumLoadsPerpendicularA"] * \
+      #   kernel["GlobalReadVectorWidthA"] * tensorParametersA["bpe"]) / (float)(self.states.bpr))# TODO (usused)
       if self.states.archCaps["HasEccHalf"] or not self.states.asmCaps["HasWMMA_V1"]:
         tpA      = self.states.bpr if bpeMax * vwa < self.states.bpr else bpeMax * vwa
         tpALocal = self.states.bpr if tensorParametersA["bpe"] * vwa < self.states.bpr else tensorParametersA["bpe"] * vwa
@@ -3499,14 +3501,14 @@ class KernelWriter(metaclass=abc.ABCMeta):
         self.states.a.numVgprG2LAllocated *= (bpeA // bpeGRA)
 
     self.states.b.numVgprG2L = 0
-    numVgprG2Local = 0
+    # numVgprG2Local = 0# TODO (usused)
     numVgprG2LAllocatedLocal = 0
     if not kernel["DirectToLdsB"] or self.do["KeepDirectToLdsAlloc"]:
       bpeMax = tensorParametersB["bpeDS"] if kernel["ConvertAfterDS"] else max(tensorParametersB["bpeGR"], tensorParametersB["bpe"])
       self.states.b.numVgprG2L = roundUp((kernel["NumLoadsCoalescedB"] * kernel["NumLoadsPerpendicularB"] * \
         kernel["GlobalReadVectorWidthB"] * bpeMax) / (float)(self.states.bpr))
-      numVgprG2Local = roundUp((kernel["NumLoadsCoalescedB"] * kernel["NumLoadsPerpendicularB"] * \
-        kernel["GlobalReadVectorWidthB"] * tensorParametersB["bpe"]) / (float)(self.states.bpr))
+      # numVgprG2Local = roundUp((kernel["NumLoadsCoalescedB"] * kernel["NumLoadsPerpendicularB"] * \
+      #   kernel["GlobalReadVectorWidthB"] * tensorParametersB["bpe"]) / (float)(self.states.bpr)) # TODO (usused)
       if self.states.archCaps["HasEccHalf"] or not self.states.asmCaps["HasWMMA_V1"]:
         tpB      = self.states.bpr if bpeMax * vwb < self.states.bpr else bpeMax * vwb
         tpBLocal = self.states.bpr if tensorParametersB["bpe"] * vwb < self.states.bpr else tensorParametersB["bpe"] * vwb
@@ -3800,12 +3802,12 @@ class KernelWriter(metaclass=abc.ABCMeta):
         self.states.m.startVgprLocalWriteAddr = vgprIdx
         vgprIdx += self.states.m.numVgprLocalWriteAddr
 
-    # BufferLoad:
+    # ti.BufferLoad:
     # Uses a resource descriptor (SRD) which is stored in 4 SGPRs and thus shared by all work-items.
     # Each work-item also uses  a unique 32-bit offset into vgprGlobalReadOffset.  These offsets are set when
     # the tile is initialized and stay constant through the execution of the kernel.
     # The base address in the SRD is updated when the algorithm moves to a new tile
-    # BufferLoad disables the gptGlobalReadAddr used in flat addressing.
+    # ti.BufferLoad disables the gptGlobalReadAddr used in flat addressing.
     if kernel["BufferLoad"]:
       self.startVgprGlobalReadOffsetA = vgprIdx
       vgprIdx += 1 if kernel["_UseSgprForGRO"] else self.states.a.numVgprGlobalReadOffsets
@@ -4040,7 +4042,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
       # Max num spgrs can be setup by CP is only 16 for now
       # kernel argument buffer address needs 2 sgprs
       # Workgroup ID x, y, z need 3 sgprs
-      numWorkgroupIDSgpr = kernel["ProblemType"]["NumIndicesC"]
+      # numWorkgroupIDSgpr = kernel["ProblemType"]["NumIndicesC"]  # TODO (unused variable to be removed)
       self.states.numSgprPreload = 16 - self.states.rpga - kernel["ProblemType"]["NumIndicesC"]
 
       # Safe guard for preload arguments
@@ -4975,6 +4977,13 @@ class KernelWriter(metaclass=abc.ABCMeta):
       else:
         code = f.read()
 
+<<<<<<< HEAD
+    if isCustomKernelConfig(kernel):
+      return os.path.join(globalParameters["CustomKernelDirectory"], (kernelName + ".s"))
+    else: # Replacement kernel
+      raise RuntimeError("Replacement kernel not found. This is an issue with tensilelite, please file a bug in hipBLASLt.")
+      # return ReplacementKernels.Get(kernelName)
+=======
     self.tPA = tensorParametersA = {}
     self.tPB = tensorParametersB = {}
     self.states.kernel = kernel
@@ -4985,6 +4994,7 @@ class KernelWriter(metaclass=abc.ABCMeta):
       printWarning(f"ISA: {self.version} is not supported; overriding with {self.states.version}")
 
     return code
+>>>>>>> remove-global-working-path
 
   def _getKernelSource(self, kernel: Solution):
     """
@@ -5038,6 +5048,45 @@ class KernelWriter(metaclass=abc.ABCMeta):
     """
     pass
 
+<<<<<<< HEAD
+    try:
+      if kernel["KernelLanguage"] == "Assembly":
+        # asmPath = self.getAssemblyDirectory()
+        # kernelName = self.getKernelName(kernel)
+
+        # Skip if .o files will have already been built for this file
+        # @TODO remove need for this with better code organization
+        if kernel.duplicate:
+          self.language = "ASM"
+          return (0, "")
+        if globalParameters["GenerateSourcesAndExit"]:
+          # only create the assembly file.
+          self._getKernelObjectAssemblyFile(kernel)
+          return (0, "")
+        else:
+          self._writeByteArrayScript()
+          self._getSingleCodeObjectFile(kernel)
+
+          # I guess in this case we are making sure that the code object file exists by executing the code
+          # above but we aren't placing it into the source.
+          return (0, "")
+
+      else:
+        return (0, self._getKernelSource(kernel))
+
+    except subprocess.CalledProcessError as exc:
+      print(exc)
+      return (-1, "")
+    except RuntimeError as exc:
+      # if globalParameters["PrintSolutionRejectionReason"]:
+      print(exc)
+      return (-2, "")
+
+  ##############################################################################
+  # header file string
+  ##############################################################################
+=======
+>>>>>>> remove-global-working-path
   def getHeaderFileString(self, kernel):
     kernelName = self.getKernelName(kernel)
     fileString = "" # CHeader
@@ -5079,26 +5128,31 @@ class KernelWriter(metaclass=abc.ABCMeta):
       _operation = operations[ph_idx]
 
       _placeholder.name = "Branch_%s"%_target.getLabelName()
-      if _operation == "SCBranchSCC0":
+      if _operation == "ti.SCBranchSCC0":
         if currentInstLength - count + 1 >= 16384:
           with self.allocTmpSgpr(3) as tmpSgprInfo:
               _placeholder.add(self.longBranchScc0(_target, 1, tmpSgprInfo))
         else:
-          _placeholder.add(SCBranchSCC0(labelName=_target.getLabelName()))
-      elif _operation == "SCBranchSCC1":
+          _placeholder.add(ti.SCBranchSCC0(labelName=_target.getLabelName()))
+      elif _operation == "ti.SCBranchSCC1":
         if currentInstLength - count + 1 >= 16384:
           with self.allocTmpSgpr(3) as tmpSgprInfo:
               _placeholder.add(self.longBranchScc1(_target, 1, tmpSgprInfo))
         else:
-          _placeholder.add(SCBranchSCC1(labelName=_target.getLabelName()))
-      elif _operation == "SBranch":
+          _placeholder.add(ti.SCBranchSCC1(labelName=_target.getLabelName()))
+      elif _operation == "ti.SBranch":
         if currentInstLength - count + 1 >= 16384:
           with self.allocTmpSgpr(3) as tmpSgprInfo:
-            _placeholder.add(SLongBranchPositive(_target, tmpSgprInfo))
+            _placeholder.add(exti.SLongBranchPositive(_target, tmpSgprInfo))
         else:
+<<<<<<< HEAD
+          _placeholder.add(ti.SBranch(labelName=_target.getLabelName()))
+      currentInstLength += _placeholder.countType(ti.Instruction)
+=======
           _placeholder.add(SBranch(labelName=_target.getLabelName()))
       currentInstLength += _placeholder.countType(Instruction)
 
   @property
   def isa(self):
     return self.states.version
+>>>>>>> remove-global-working-path

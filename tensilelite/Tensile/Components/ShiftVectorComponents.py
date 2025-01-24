@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,18 +22,14 @@
 #
 ################################################################################
 
-from ..TensileInstructions import Label, Module, VCC, DSModifiers, \
-                                DSBPermuteB32, SBranch, SCBranchVCCNZ, \
-                                SMovB32, SMovB64, SNop, \
-                                SOrSaveExecB32, SOrSaveExecB64, SWaitCnt, \
-                                VAccvgprReadB32, VAccvgprWriteB32, VAddCOU32, \
-                                VAndB32, VCmpEQU32, VCmpLtU32, VCmpXEqU32, \
-                                VCndMaskB32, VMovB32, VMulI32I24, VLShiftLeftB32, \
-                                VLShiftRightB32, VSubU32, \
-                                RegisterPoolResource, staticMultiply, vectorStaticDivide, \
-                                vectorStaticRemainder, vgpr, sgpr, accvgpr, log2
+from ..TensileInstructions import Instructions as ti
+from ..TensileInstructions import Math as mathti
+from ..TensileInstructions.Code import Label, Module
+from ..TensileInstructions.Containers import VCC, DSModifiers
+from ..TensileInstructions.RegisterPool import RegisterPoolResource
+from ..TensileInstructions.Utils import vgpr, sgpr, log2
 from ..Component import ShiftVectorComponents
-from ..KernelWriterModules import *
+from ..KernelWriterModules import accToArchMapper, accVgprImagNumOffset
 
 class ShiftVectorComponentsMFMA(ShiftVectorComponents):
     kernel = {"EnableMatrixInstruction": True}
@@ -184,22 +180,22 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
 
             # get M size of edge block
             mtReg = writer.vgprPool.checkOut(1)
-            module.add(VMovB32(dst=vgpr(wgMT), src=sgpr(wg)))
-            module.add(VMulI32I24(dst=vgpr(wgMT), src0=hex(-kernel[tP["mt"]]), src1=vgpr(wgMT), comment="wg*MT"))
-            module.add(VAddCOU32(dst=vgpr(wgMT), dst1=VCC(), src0=sgpr("SizesFree+%u"%tP["idx"]), src1=vgpr(wgMT), comment="wgMT = Size - wg*MT"))
-            module.add(VMovB32(dst=vgpr(mtReg), src=hex(kernel[tP["mt"]]), comment="MT"))
-            module.add(VCmpLtU32(dst=sgpr(tmpSgpr,writer.states.laneSGPRCount), src0=vgpr(wgMT), src1=vgpr(mtReg), comment="wgMT < MT"))
-            module.add(VCndMaskB32(dst=vgpr(wgMT), src0=vgpr(mtReg), src1=vgpr(wgMT), src2=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="wgMT = (wgMT < MT) ? wgMT : MT" ))
+            module.add(ti.VMovB32(dst=vgpr(wgMT), src=sgpr(wg)))
+            module.add(ti.VMulI32I24(dst=vgpr(wgMT), src0=hex(-kernel[tP["mt"]]), src1=vgpr(wgMT), comment="wg*MT"))
+            module.add(ti.VAddCOU32(dst=vgpr(wgMT), dst1=VCC(), src0=sgpr("SizesFree+%u"%tP["idx"]), src1=vgpr(wgMT), comment="wgMT = Size - wg*MT"))
+            module.add(ti.VMovB32(dst=vgpr(mtReg), src=hex(kernel[tP["mt"]]), comment="MT"))
+            module.add(ti.VCmpLtU32(dst=sgpr(tmpSgpr,writer.states.laneSGPRCount), src0=vgpr(wgMT), src1=vgpr(mtReg), comment="wgMT < MT"))
+            module.add(ti.VCndMaskB32(dst=vgpr(wgMT), src0=vgpr(mtReg), src1=vgpr(wgMT), src2=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="wgMT = (wgMT < MT) ? wgMT : MT" ))
 
             # identify which wave have to process
             wReg = writer.vgprPool.checkOut(1)
             sReg = writer.vgprPool.checkOut(1)
-            module.add(vectorStaticDivide(wReg, "Serial", miWGIdStride, tmpVgprRes))
-            module.add(vectorStaticRemainder(dummy, wReg, wReg, miWaveGroupCoal, tmpVgprRes, tmpSgprInfo))
-            module.add(vectorStaticDivide(sReg, wgMT, MIBShapeCoal, tmpVgprRes))
-            module.add(vectorStaticRemainder(dummy, sReg, sReg, miWaveGroupCoal, tmpVgprRes, tmpSgprInfo))
-            module.add(VCmpEQU32(dst=sgpr(tmpSgpr,writer.states.laneSGPRCount), src0=vgpr(sReg), src1=vgpr(wReg), comment="wave_id == block_belong_to_wave?" ))
-            module.add(VCndMaskB32(dst=vgpr(wgMT), src0=vgpr(mtReg), src1=vgpr(wgMT), src2=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="wgMT = (wgMT < MT) ? wgMT : MT" ))
+            module.add(mathti.vectorStaticDivide(wReg, "Serial", miWGIdStride, tmpVgprRes))
+            module.add(mathti.vectorStaticRemainder(dummy, wReg, wReg, miWaveGroupCoal, tmpVgprRes, tmpSgprInfo))
+            module.add(mathti.vectorStaticDivide(sReg, wgMT, MIBShapeCoal, tmpVgprRes))
+            module.add(mathti.vectorStaticRemainder(dummy, sReg, sReg, miWaveGroupCoal, tmpVgprRes, tmpSgprInfo))
+            module.add(ti.VCmpEQU32(dst=sgpr(tmpSgpr,writer.states.laneSGPRCount), src0=vgpr(sReg), src1=vgpr(wReg), comment="wave_id == block_belong_to_wave?" ))
+            module.add(ti.VCndMaskB32(dst=vgpr(wgMT), src0=vgpr(mtReg), src1=vgpr(wgMT), src2=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="wgMT = (wgMT < MT) ? wgMT : MT" ))
             writer.vgprPool.checkIn(mtReg)
             writer.vgprPool.checkIn(sReg)
 
@@ -207,44 +203,44 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
             module.addComment1("mbReg: which mb block need to shift, mb(matrixInstCoal(%u) * VectorWidth(%u))" % (matrixInstCoal, vectorWidth))
             mbReg = writer.vgprPool.checkOut(1)
             tReg  = writer.vgprPool.checkOut(1)
-            module.add(vectorStaticDivide(mbReg, wgMT, subMBShapeCoal, tmpVgprRes))
-            module.add(staticMultiply(vgpr(tReg), vgpr(wReg), (matrixInstBCoal * OutBlocksInMI), tmpSgprInfo))
-            module.add(VSubU32(dst=vgpr(mbReg), src0=vgpr(mbReg), src1=vgpr(tReg)))
+            module.add(mathti.vectorStaticDivide(mbReg, wgMT, subMBShapeCoal, tmpVgprRes))
+            module.add(mathti.staticMultiply(vgpr(tReg), vgpr(wReg), (matrixInstBCoal * OutBlocksInMI), tmpSgprInfo))
+            module.add(ti.VSubU32(dst=vgpr(mbReg), src0=vgpr(mbReg), src1=vgpr(tReg)))
             writer.vgprPool.checkIn(tReg)
 
             # gbReg: glvw block id
             module.addComment1("gbReg: glvw block id")
             gbReg = writer.vgprPool.checkOut(1)
-            module.add(vectorStaticDivide(gbReg, wgMT, glvw, tmpVgprRes))
+            module.add(mathti.vectorStaticDivide(gbReg, wgMT, glvw, tmpVgprRes))
 
             # tgbReg: thread in glvw block
             module.addComment1("tgbReg: glvw block id")
             tgbReg = writer.vgprPool.checkOut(1)
-            module.add(vectorStaticDivide(tgbReg, "Serial", threadInterval, tmpVgprRes))
-            module.add(vectorStaticRemainder(dummy, tgbReg, tgbReg, numThreadInCoal, tmpVgprRes, tmpSgprInfo))
-            module.add(staticMultiply(vgpr(tgbReg), vgpr(tgbReg), allContOutCoal, tmpSgprInfo))
-            module.add(vectorStaticDivide(tgbReg, tgbReg, glvw, tmpVgprRes))
-            module.add(staticMultiply(vgpr(wReg), vgpr(wReg), MIBShapeCoal//glvw, tmpSgprInfo))
-            module.add(VAddCOU32(dst=vgpr(tgbReg), dst1=VCC(), src0=vgpr(wReg), src1=vgpr(tgbReg), comment="tgbReg = (tid_coal * continOut) / GLVW"))
-            module.add(VSubU32(dst=vgpr(gbReg), src0=vgpr(gbReg), src1=vgpr(tgbReg)))
+            module.add(mathti.vectorStaticDivide(tgbReg, "Serial", threadInterval, tmpVgprRes))
+            module.add(mathti.vectorStaticRemainder(dummy, tgbReg, tgbReg, numThreadInCoal, tmpVgprRes, tmpSgprInfo))
+            module.add(mathti.staticMultiply(vgpr(tgbReg), vgpr(tgbReg), allContOutCoal, tmpSgprInfo))
+            module.add(mathti.vectorStaticDivide(tgbReg, tgbReg, glvw, tmpVgprRes))
+            module.add(mathti.staticMultiply(vgpr(wReg), vgpr(wReg), MIBShapeCoal//glvw, tmpSgprInfo))
+            module.add(ti.VAddCOU32(dst=vgpr(tgbReg), dst1=VCC(), src0=vgpr(wReg), src1=vgpr(tgbReg), comment="tgbReg = (tid_coal * continOut) / GLVW"))
+            module.add(ti.VSubU32(dst=vgpr(gbReg), src0=vgpr(gbReg), src1=vgpr(tgbReg)))
             writer.vgprPool.checkIn(wReg)
             writer.vgprPool.checkIn(tgbReg)
 
             # vw block of glvw
             module.addComment1("vwReg: glvw in which vw block?")
             vwReg = writer.vgprPool.checkOut(1)
-            module.add(VAndB32(dst=vgpr(vwReg), src0=allContOutCoal-1, src1=vgpr(wgMT), comment="permute register between threads"))
-            module.add(VLShiftRightB32(dst=vgpr(vwReg), shiftHex=log2(glvw), src=vgpr(vwReg), comment="permute register between threads"))
+            module.add(ti.VAndB32(dst=vgpr(vwReg), src0=allContOutCoal-1, src1=vgpr(wgMT), comment="permute register between threads"))
+            module.add(ti.VLShiftRightB32(dst=vgpr(vwReg), shiftHex=log2(glvw), src=vgpr(vwReg), comment="permute register between threads"))
 
             # rReg : reminder of M_size % vectorwidth
             # decide to jump to block which handle this case, M_size % vector width
             module.addComment1("rReg : reminder of M_size % GlobalReadVectorWidth")
             rReg = writer.vgprPool.checkOut(1)
-            module.add(vectorStaticRemainder(dummy, rReg, wgMT, glvw, tmpVgprRes, tmpSgprInfo))
+            module.add(mathti.vectorStaticRemainder(dummy, rReg, wgMT, glvw, tmpVgprRes, tmpSgprInfo))
             for r in range(1, glvw):
-                module.add(VCmpEQU32(dst=VCC(), src0=vgpr(rReg), src1=hex(r), comment="wgMT%%VW == %u"%r ))
-                module.add(SCBranchVCCNZ(labelName=glvwLabels[(r-1)].getLabelName(), comment="branch to shift d%u r=%u"%(tP["idx"], r)))
-            module.add(SBranch(labelName=glvwLabels[glvw-1].getLabelName(), comment="no shifting" ))
+                module.add(ti.VCmpEQU32(dst=VCC(), src0=vgpr(rReg), src1=hex(r), comment="wgMT%%VW == %u"%r ))
+                module.add(ti.SCBranchVCCNZ(labelName=glvwLabels[(r-1)].getLabelName(), comment="branch to shift d%u r=%u"%(tP["idx"], r)))
+            module.add(ti.SBranch(labelName=glvwLabels[glvw-1].getLabelName(), comment="no shifting" ))
             writer.vgprPool.checkIn(rReg)
 
             _, arch2acc = accToArchMapper(kernel)
@@ -258,8 +254,8 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                         for ob in range(0, OutBlocksInMI):
                             label  = ob + OutBlocksInMI * (bm + matrixInstBCoal * tt)
                             target = ob + OutBlocksInMI * (bm + matrixInstBCoal * miWaveGroupCoal * tt)
-                            module.add(VCmpEQU32(dst=VCC(), src0=vgpr(mbReg), src1=hex(target)))
-                            module.add(SCBranchVCCNZ(labelName=MBblockLabels[r-1][label].getLabelName(), comment="branch to shift d%u r%u mb%u" % (tP["idx"], r, label)))
+                            module.add(ti.VCmpEQU32(dst=VCC(), src0=vgpr(mbReg), src1=hex(target)))
+                            module.add(ti.SCBranchVCCNZ(labelName=MBblockLabels[r-1][label].getLabelName(), comment="branch to shift d%u r%u mb%u" % (tP["idx"], r, label)))
 
             for r in range(1, glvw):
                 for mb in range(0, miOuterTTCoal * matrixInstBCoal * OutBlocksInMI):
@@ -267,8 +263,8 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                     MBblockLabels[r-1][mb].comment = "r%u mb%u"%(r, mb)
                     module.add(MBblockLabels[r-1][mb])
                     for vw in range(0, max(1, allContOutCoal//glvw)):
-                        module.add(VCmpEQU32(dst=VCC(), src0=vgpr(vwReg), src1=hex(vw)))
-                        module.add(SCBranchVCCNZ(labelName=VWBlockLabels[r-1][mb][vw].getLabelName(), comment="branch to shift d%u r%u mb%u vw%u" % (tP["idx"], r, mb, vw)))
+                        module.add(ti.VCmpEQU32(dst=VCC(), src0=vgpr(vwReg), src1=hex(vw)))
+                        module.add(ti.SCBranchVCCNZ(labelName=VWBlockLabels[r-1][mb][vw].getLabelName(), comment="branch to shift d%u r%u mb%u vw%u" % (tP["idx"], r, mb, vw)))
 
             # blocks for handle M_size % vector width
             tReg  = writer.vgprPool.checkOut(min(glvw, allContOutCoal))
@@ -281,10 +277,10 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                                 module.addComment2("shift d%u r=%u mb=%u vw%d"%(tP["idx"], r, mb, vw))
                                 VWBlockLabels[r-1][mb][vw].comment = "r%u mb%u vw%u"%(r, mb, vw)
                                 module.add(VWBlockLabels[r-1][mb][vw])
-                                module.add(SMovB32(dst=sgpr(tmpSgpr), src=(((ob*subMBShapeCoal + bm*MBShapeCoal + tt*WGShapeCoal) // glvw) + vw)))
-                                module.add(VCmpXEqU32(dst=sgpr(tmpSgpr, writer.states.laneSGPRCount), src0=vgpr(gbReg), src1=sgpr(tmpSgpr), comment="is thread in edge glvw region" ))
-                                module.add(VAndB32(dst=vgpr(tmpVgpr), src0=kernel["WavefrontSize"]-1, src1=vgpr("Serial"), comment="permute register between threads"))
-                                module.add(VLShiftLeftB32(dst=vgpr(tmpVgpr), shiftHex=log2(writer.states.bpr), src=vgpr(tmpVgpr), comment="permute register between threads"))
+                                module.add(ti.SMovB32(dst=sgpr(tmpSgpr), src=(((ob*subMBShapeCoal + bm*MBShapeCoal + tt*WGShapeCoal) // glvw) + vw)))
+                                module.add(ti.VCmpXEqU32(dst=sgpr(tmpSgpr, writer.states.laneSGPRCount), src0=vgpr(gbReg), src1=sgpr(tmpSgpr), comment="is thread in edge glvw region" ))
+                                module.add(ti.VAndB32(dst=vgpr(tmpVgpr), src0=kernel["WavefrontSize"]-1, src1=vgpr("Serial"), comment="permute register between threads"))
+                                module.add(ti.VLShiftLeftB32(dst=vgpr(tmpVgpr), shiftHex=log2(writer.states.bpr), src=vgpr(tmpVgpr), comment="permute register between threads"))
 
                                 for ot in range(numOutputsPrep):
                                     for c  in range(complexMultiplier):
@@ -300,18 +296,18 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                                                 module.add(copyInst(dst=vgpr(tReg+e), src=srcVal, comment="glvw %u mb %u tt1 %u r %u" % (r, mb, ot, nr)))
 
                                             if not kernel["MIArchVgpr"]:
-                                                module.add(SNop(waitState=1, comment="v_accvgpr read vgpr after write vgpr: 2 wait states"))
+                                                module.add(ti.SNop(waitState=1, comment="v_accvgpr read vgpr after write vgpr: 2 wait states"))
 
                                             needWait = False
                                             for e in range(min(r, allContOutCoal)):
                                                 crossThread = (e+(glvw-r)) // allContOutCoal
                                                 if crossThread != 0:
                                                     ds = DSModifiers(na=1, offset=crossThread*threadInterval*4)
-                                                    module.add(DSBPermuteB32(dst=vgpr(tReg+e), src0=vgpr(tmpVgpr), src1=vgpr(tReg+e), ds=ds, comment="permute edge values"))
+                                                    module.add(ti.DSBPermuteB32(dst=vgpr(tReg+e), src0=vgpr(tmpVgpr), src1=vgpr(tReg+e), ds=ds, comment="permute edge values"))
                                                     needWait = True
 
                                             if needWait:
-                                                module.add(SWaitCnt(waitAll=True, comment="wait for swizzle operation"))
+                                                module.add(ti.SWaitCnt(waitAll=True, comment="wait for swizzle operation"))
 
                                             for e in range(min(r, allContOutCoal)):
                                                 dstVgpr = (e + (vw * glvw) + allContOutCoal * mb) * regStrideCoal
@@ -323,11 +319,11 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
 
                                 # end shift reset mask and jump out
                                 all1mask = "0xFFFFFFFF" if (kernel["WavefrontSize"] == 32) else "0xFFFFFFFFFFFFFFFF"
-                                SMovBX = SMovB64 if kernel["WavefrontSize"] == 64 else SMovB32
-                                SOrSaveExecBX = SOrSaveExecB64 if kernel["WavefrontSize"] == 64 else SOrSaveExecB32
-                                module.add(SMovBX(dst=sgpr(tmpSgpr, writer.states.laneSGPRCount), src=all1mask, comment="to restore all threads active"))
-                                module.add(SOrSaveExecBX(dst=VCC(), src=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="all threads active"))
-                                module.add(SBranch(labelName=glvwLabels[glvw-1].getLabelName(), comment="done shifting" ))
+                                ti.SMovBX = ti.SMovB64 if kernel["WavefrontSize"] == 64 else ti.SMovB32
+                                ti.SOrSaveExecBX = ti.SOrSaveExecB64 if kernel["WavefrontSize"] == 64 else ti.SOrSaveExecB32
+                                module.add(ti.SMovBX(dst=sgpr(tmpSgpr, writer.states.laneSGPRCount), src=all1mask, comment="to restore all threads active"))
+                                module.add(ti.SOrSaveExecBX(dst=VCC(), src=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="all threads active"))
+                                module.add(ti.SBranch(labelName=glvwLabels[glvw-1].getLabelName(), comment="done shifting" ))
                                 module.addSpaceLine()
 
             module.add(glvwLabels[glvw-1])
@@ -422,43 +418,43 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
             # get M size of edge block
             module.addComment1("check which macro tile need to shift")
             mtReg = writer.vgprPool.checkOut(1)
-            module.add(VMovB32(dst=vgpr(wgMT), src=sgpr(wg)))
-            module.add(VMulI32I24(dst=vgpr(wgMT), src0=hex(-kernel[tP["mt"]]), src1=vgpr(wgMT), comment="wg*MT"))
-            module.add(VAddCOU32(dst=vgpr(wgMT), dst1=VCC(), src0=sgpr("SizesFree+%u"%tP["idx"]), src1=vgpr(wgMT), comment="wgMT = Size - wg*MT"))
-            module.add(VMovB32(dst=vgpr(mtReg), src=hex(kernel[tP["mt"]]), comment="MT"))
-            module.add(VCmpLtU32(dst=sgpr(tmpSgpr,writer.states.laneSGPRCount), src0=vgpr(wgMT), src1=vgpr(mtReg), comment="wgMT < MT"))
-            module.add(VCndMaskB32(dst=vgpr(wgMT), src0=vgpr(mtReg), src1=vgpr(wgMT), src2=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="wgMT = (wgMT < MT) ? wgMT : MT" ))
+            module.add(ti.VMovB32(dst=vgpr(wgMT), src=sgpr(wg)))
+            module.add(ti.VMulI32I24(dst=vgpr(wgMT), src0=hex(-kernel[tP["mt"]]), src1=vgpr(wgMT), comment="wg*MT"))
+            module.add(ti.VAddCOU32(dst=vgpr(wgMT), dst1=VCC(), src0=sgpr("SizesFree+%u"%tP["idx"]), src1=vgpr(wgMT), comment="wgMT = Size - wg*MT"))
+            module.add(ti.VMovB32(dst=vgpr(mtReg), src=hex(kernel[tP["mt"]]), comment="MT"))
+            module.add(ti.VCmpLtU32(dst=sgpr(tmpSgpr,writer.states.laneSGPRCount), src0=vgpr(wgMT), src1=vgpr(mtReg), comment="wgMT < MT"))
+            module.add(ti.VCndMaskB32(dst=vgpr(wgMT), src0=vgpr(mtReg), src1=vgpr(wgMT), src2=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="wgMT = (wgMT < MT) ? wgMT : MT" ))
             module.addSpaceLine()
 
             # identify which wave have to process
             module.addComment1("check which wave need to shift")
             wReg = writer.vgprPool.checkOut(1)
             sReg = writer.vgprPool.checkOut(1)
-            module.add(vectorStaticDivide(wReg, "Serial", miWGIdStride, tmpVgprRes))
-            module.add(vectorStaticRemainder(dummy, wReg, wReg, miWaveGroupCoal, tmpVgprRes, tmpSgprInfo))
-            module.add(vectorStaticDivide(sReg, wgMT, MIBShapeCoal, tmpVgprRes))
-            module.add(vectorStaticRemainder(dummy, sReg, sReg, miWaveGroupCoal, tmpVgprRes, tmpSgprInfo))
-            module.add(VCmpEQU32(dst=sgpr(tmpSgpr,writer.states.laneSGPRCount), src0=vgpr(sReg), src1=vgpr(wReg), comment="wave_id == block_belong_to_wave?" ))
-            module.add(VCndMaskB32(dst=vgpr(wgMT), src0=vgpr(mtReg), src1=vgpr(wgMT), src2=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="wgMT = (wgMT < MT) ? wgMT : MT" ))
+            module.add(mathti.vectorStaticDivide(wReg, "Serial", miWGIdStride, tmpVgprRes))
+            module.add(mathti.vectorStaticRemainder(dummy, wReg, wReg, miWaveGroupCoal, tmpVgprRes, tmpSgprInfo))
+            module.add(mathti.vectorStaticDivide(sReg, wgMT, MIBShapeCoal, tmpVgprRes))
+            module.add(mathti.vectorStaticRemainder(dummy, sReg, sReg, miWaveGroupCoal, tmpVgprRes, tmpSgprInfo))
+            module.add(ti.VCmpEQU32(dst=sgpr(tmpSgpr,writer.states.laneSGPRCount), src0=vgpr(sReg), src1=vgpr(wReg), comment="wave_id == block_belong_to_wave?" ))
+            module.add(ti.VCndMaskB32(dst=vgpr(wgMT), src0=vgpr(mtReg), src1=vgpr(wgMT), src2=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="wgMT = (wgMT < MT) ? wgMT : MT" ))
             module.addSpaceLine()
 
             # glveblkid
             module.addComment1("get id of which glvw block need to shift")
             glvwblkidReg = writer.vgprPool.checkOut(1)
-            module.add(VMulI32I24(dst=vgpr(glvwblkidReg), src0=hex(-MIBShapeCoal), src1=vgpr(wReg), comment="wg * MIB"))
-            module.add(VAddCOU32(dst=vgpr(glvwblkidReg), dst1=VCC(), src0=vgpr(glvwblkidReg), src1=vgpr(wgMT), comment="wgMT = Size - wg*MIB"))
-            module.add(vectorStaticDivide(glvwblkidReg, glvwblkidReg, glvw, tmpVgprRes, "glvw block id"))
+            module.add(ti.VMulI32I24(dst=vgpr(glvwblkidReg), src0=hex(-MIBShapeCoal), src1=vgpr(wReg), comment="wg * MIB"))
+            module.add(ti.VAddCOU32(dst=vgpr(glvwblkidReg), dst1=VCC(), src0=vgpr(glvwblkidReg), src1=vgpr(wgMT), comment="wgMT = Size - wg*MIB"))
+            module.add(mathti.vectorStaticDivide(glvwblkidReg, glvwblkidReg, glvw, tmpVgprRes, "glvw block id"))
             module.addSpaceLine()
 
             # rReg : reminder of M_size % vectorwidth
             # decide to jump to block which handle this case, M_size % vector width
             module.addComment1("dispatch to differet shift block for shift")
             rReg = writer.vgprPool.checkOut(1)
-            module.add(vectorStaticRemainder(dummy, rReg, wgMT, glvw, tmpVgprRes, tmpSgprInfo))
+            module.add(mathti.vectorStaticRemainder(dummy, rReg, wgMT, glvw, tmpVgprRes, tmpSgprInfo))
             for r in range(1, glvw):
-                module.add(VCmpEQU32(dst=VCC(), src0=vgpr(rReg), src1=hex(r), comment="wgMT%%VW == %u"%r ))
-                module.add(SCBranchVCCNZ(labelName=shiftLabels[(r-1)].getLabelName(), comment="branch to shift d%u r=%u"%(tP["idx"], r)))
-            module.add(SBranch(labelName=shiftLabels[(glvw-1)].getLabelName(), comment="no shifting"))
+                module.add(ti.VCmpEQU32(dst=VCC(), src0=vgpr(rReg), src1=hex(r), comment="wgMT%%VW == %u"%r ))
+                module.add(ti.SCBranchVCCNZ(labelName=shiftLabels[(r-1)].getLabelName(), comment="branch to shift d%u r=%u"%(tP["idx"], r)))
+            module.add(ti.SBranch(labelName=shiftLabels[(glvw-1)].getLabelName(), comment="no shifting"))
             writer.vgprPool.checkIn(rReg)
 
         # blocks for handle M_size % vector width
@@ -472,8 +468,8 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                     for glvwBlk in range(0, glvwBlkInMIB):
                         label  = glvwBlk + tt * glvwBlkInMIB
                         target = glvwBlk + tt * glvwBlkInMIB * miWaveGroupCoal
-                        module.add(VCmpEQU32(dst=VCC(), src0=vgpr(glvwblkidReg), src1=hex(target)))
-                        module.add(SCBranchVCCNZ(labelName=GLVWBLKLabels[r-1][label].getLabelName(), comment="branch to shift d%u shift%u glvwblk%u" % (tP["idx"], r, label)))
+                        module.add(ti.VCmpEQU32(dst=VCC(), src0=vgpr(glvwblkidReg), src1=hex(target)))
+                        module.add(ti.SCBranchVCCNZ(labelName=GLVWBLKLabels[r-1][label].getLabelName(), comment="branch to shift d%u shift%u glvwblk%u" % (tP["idx"], r, label)))
 
             _, arch2acc = accToArchMapper(kernel)
 
@@ -487,10 +483,10 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                         label = glvwBlk + tt * glvwBlkInMIB
                         module.addComment2("shift d%u shift=%u glvwblk=%u"%(tP["idx"], shift, glvwBlk))
                         module.add(GLVWBLKLabels[shift-1][label])
-                        module.add(VAndB32(dst=vgpr(permuteIndexReg), src0=kernel["WavefrontSize"]-1, src1=vgpr("Serial"), comment="permute register between threads"))
-                        module.add(staticMultiply(vgpr(permuteIndexReg), vgpr(permuteIndexReg), writer.states.bpr, sgpr(tmpSgpr), "permute register between threads"))
-                        module.add(vectorStaticDivide(threadIdInCoalReg, "Serial", threadInterval, tmpVgprRes))
-                        module.add(vectorStaticRemainder(dummy, threadIdInCoalReg, threadIdInCoalReg, numThreadInCoal, tmpVgprRes, tmpSgprInfo))
+                        module.add(ti.VAndB32(dst=vgpr(permuteIndexReg), src0=kernel["WavefrontSize"]-1, src1=vgpr("Serial"), comment="permute register between threads"))
+                        module.add(mathti.staticMultiply(vgpr(permuteIndexReg), vgpr(permuteIndexReg), writer.states.bpr, sgpr(tmpSgpr), "permute register between threads"))
+                        module.add(mathti.vectorStaticDivide(threadIdInCoalReg, "Serial", threadInterval, tmpVgprRes))
+                        module.add(mathti.vectorStaticRemainder(dummy, threadIdInCoalReg, threadIdInCoalReg, numThreadInCoal, tmpVgprRes, tmpSgprInfo))
 
                         for dstMbblkId in range(glvw//(numContOutCoal*numThreadInCoal)):
                             for dstThreadId in range(numThreadInCoal):
@@ -513,7 +509,7 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                                             module.add(copyInst(dst=vgpr(movRegId), src=srcGprStr, comment=""))
 
                                 if not skip:
-                                     module.add(SNop(waitState=1, comment="v_accvgpr read vgpr after write vgpr: 2 wait states"))
+                                     module.add(ti.SNop(waitState=1, comment="v_accvgpr read vgpr after write vgpr: 2 wait states"))
 
                                 needWait = False
                                 for dstContId in range(numContOutCoal):
@@ -530,15 +526,15 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
                                             for ot in range(numOutputsPrep):
                                                 movRegId    = movReg + dstContId + ot * numContOutCoal
                                                 ds = DSModifiers(na=1, offset=permuteOffset)
-                                                module.add(DSBPermuteB32(dst=vgpr(movRegId), src0=vgpr(permuteIndexReg), src1=vgpr(movRegId), ds=ds, comment="permute edge values"))
+                                                module.add(ti.DSBPermuteB32(dst=vgpr(movRegId), src0=vgpr(permuteIndexReg), src1=vgpr(movRegId), ds=ds, comment="permute edge values"))
 
                                 if needWait:
-                                    module.add(SWaitCnt(lgkmcnt=0, comment="wait for swizzle operation"))
+                                    module.add(ti.SWaitCnt(lgkmcnt=0, comment="wait for swizzle operation"))
 
                                 if not skip:
-                                    module.add(SMovB32(dst=sgpr(tmpSgpr), src=dstThreadId, comment="which thread need to shfit in this block"))
-                                    module.add(VCmpXEqU32(dst=sgpr(tmpSgpr, writer.states.laneSGPRCount), src0=vgpr(threadIdInCoalReg), src1=sgpr(tmpSgpr), comment="is thread in edge glvw region"))
-                                    module.add(SNop(waitState=3, comment="wait for exec mask"))
+                                    module.add(ti.SMovB32(dst=sgpr(tmpSgpr), src=dstThreadId, comment="which thread need to shfit in this block"))
+                                    module.add(ti.VCmpXEqU32(dst=sgpr(tmpSgpr, writer.states.laneSGPRCount), src0=vgpr(threadIdInCoalReg), src1=sgpr(tmpSgpr), comment="is thread in edge glvw region"))
+                                    module.add(ti.SNop(waitState=3, comment="wait for exec mask"))
 
                                 for dstContId in range(numContOutCoal):
                                     dst = dstContId + dstThreadId * numContOutCoal + dstMbblkId * numThreadInCoal * numContOutCoal
@@ -555,13 +551,13 @@ class ShiftVectorComponentsMFMA(ShiftVectorComponents):
 
                                 if not skip:
                                     all1mask = "0xFFFFFFFF" if (kernel["WavefrontSize"] == 32) else "0xFFFFFFFFFFFFFFFF"
-                                    SMovBX = SMovB64 if kernel["WavefrontSize"] == 64 else SMovB32
-                                    SOrSaveExecBX = SOrSaveExecB64 if kernel["WavefrontSize"] == 64 else SOrSaveExecB32
+                                    SMovBX = ti.SMovB64 if kernel["WavefrontSize"] == 64 else ti.SMovB32
+                                    SOrSaveExecBX = ti.SOrSaveExecB64 if kernel["WavefrontSize"] == 64 else ti.SOrSaveExecB32
                                     module.add(SMovBX(dst=sgpr(tmpSgpr, writer.states.laneSGPRCount), src=all1mask, comment="to restore all threads active"))
                                     module.add(SOrSaveExecBX(dst=VCC(), src=sgpr(tmpSgpr,writer.states.laneSGPRCount), comment="all threads active"))
-                                    module.add(SNop(waitState=3, comment="wait for exec mask"))
+                                    module.add(ti.SNop(waitState=3, comment="wait for exec mask"))
 
-                        module.add(SBranch(labelName=shiftLabels[glvw-1].getLabelName(), comment="done"))
+                        module.add(ti.SBranch(labelName=shiftLabels[glvw-1].getLabelName(), comment="done"))
 
             module.add(shiftLabels[glvw-1])
 

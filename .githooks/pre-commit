@@ -1,13 +1,13 @@
 #!/bin/bash
-#
+
 # This pre-commit hook checks if any versions of clang-format
 # are installed, and if so, uses the installed version to format
 # the staged changes.
 
 export PATH=$PATH:/opt/rocm/llvm/bin:/opt/rocm/hcc/bin:/usr/bin:/bin
 
-set -x
-
+# Uncomment this line to see all pre-commeit commands in terminal
+# set -x
 
 # Redirect stdout to stderr.
 exec >&2

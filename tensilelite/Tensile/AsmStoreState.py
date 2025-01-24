@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,7 +20,7 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .TensileInstructions import DataType
+from .TensileInstructions.Utils import DataType
 from .AsmAddressCalculation import AddrCalculation
 from .Utils import DataDirection
 
@@ -386,7 +386,7 @@ class StoreState:
         self.elementCoord1 = []
         self.elementSumIdx = []
 
-        kw = self.kernelWriter
+        # kw = self.kernelWriter# TODO (unused)
 
         if kernel["EnableMatrixInstruction"]:
             matrixInstM  = (kernel["MatrixInstM"] * kernel["MatrixInstBM"]) if (kernel["MatrixInstM"] == 4) else kernel["MatrixInstM"]
@@ -424,7 +424,7 @@ class StoreState:
                     strideD1 = (kernel["SubGroup1"] * kernel["VectorWidthB"])
                 coordOffset1 = d1 * strideD1 + vc1
 
-            newCoord1 = (self.firstBatch and elementIdx==0) or (coordOffset1 != self.lastCoordOffset1)
+            # newCoord1 = (self.firstBatch and elementIdx==0) or (coordOffset1 != self.lastCoordOffset1)# TODO (unused)
             self.elementCoord1.append(coordOffset1)
 
             # gpr and offset assignments for element
@@ -739,7 +739,7 @@ class StoreState:
             self.elementAddr.append(AddrCalculation(kw, self, addrCVgpr, addrDVgpr, addrGSUSyncVgprs, addrEVgpr, addrBiasVgpr, addrScaleAVecVgpr, addrScaleBVecVgpr, addrScaleAlphaVecVgpr, element, coordOffset0, \
               self.kernelWriter.vgprs.coord1, coordOffset1, coordOffset1 - self.lastCoordOffset1, newCoord1, self.vectorDataTypes))
             self.lastCoordOffset1 = coordOffset1
-            
+
         # reset flag
         self.isReset = False
 

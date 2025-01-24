@@ -1,6 +1,8 @@
 import yaml
 from pathlib import Path
 
+from .Common import printWarning
+
 try:
     DEFAULT_YAML_LOADER = yaml.CSafeLoader
 except:
@@ -147,4 +149,5 @@ def load_logic_gfx_arch(yaml_path: Path, loader_type: yaml.Loader = DEFAULT_YAML
         else:
             return arch
     except RuntimeError as e:
+        printWarning(f'Error loading gfx arch from {yaml_path}: {e}')
         return load_yaml_dict_item(yaml_path, loader_type, 'ArchitectureName')

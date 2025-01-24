@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,8 @@
 #
 ################################################################################
 
-from ..TensileInstructions import DataType, Module
+from ..TensileInstructions.Code import Module
+from ..TensileInstructions.Utils import DataType
 from ..Component import Component, MAC
 
 class MAC_F16_Plain(MAC):
@@ -170,7 +171,7 @@ class FMA_F16_Packed(MAC):
                     module.add(priority(writer, 1, "Raise priority while processing macs"))
 
                     cIdxExpr = "{blockA} + {blockB}*{ThreadTile0} + {Half_ThreadTile0}".format_map(vars)
-                    cIdxVal  = eval(vars["cIdxExpr"])
+                    # cIdxVal  = eval(vars["cIdxExpr"])# TODO (unused)
 
                     cStr = "v[vgprValuC + {cIdxExpr}]".format_map(vars)
 

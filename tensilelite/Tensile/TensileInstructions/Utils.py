@@ -20,22 +20,18 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-import warnings
-from .Base import getGfxName
+import random
+import string
+from functools import lru_cache
+from math import log
+from typing import Tuple
+
 from .Code import Module
 from .Containers import HolderContainer, RegisterContainer, RegName
 from .DataType import DataType
 from .Enums import InstType
 from .Formatting import printAssert, printExit
 from .Instructions import Instruction, SWaitCnt
-
-from functools import lru_cache
-from math import log
-from typing import List, Tuple
-import os
-import random
-import shlex
-import string
 
 ########################################
 # Format GPRs

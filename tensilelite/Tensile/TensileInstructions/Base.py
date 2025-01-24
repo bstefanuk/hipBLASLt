@@ -20,16 +20,16 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Formatting import __TI_DEBUG_LEVEL__, printExit
-
-from copy import deepcopy
-from dataclasses import dataclass
-from typing import Tuple
-
 import pickle
 import subprocess
 import threading
+from copy import deepcopy
+from dataclasses import dataclass
 from functools import lru_cache
+from typing import Tuple
+
+from .Formatting import printExit
+
 
 def fastdeepcopy(x):
     # Note: Some object can't be pickled
@@ -73,9 +73,6 @@ class TensileInstructions:
                 asmBugs  = _initAsmBugs(asmCaps)
                 self._isaInfo[isaVersion] = TensileInstructions.IsaInfo(assemblerPath, # type: ignore
                     asmCaps, archCaps, regCaps, asmBugs)
-
-    def setDebugLevel(self, level: int) -> None:
-        __TI_DEBUG_LEVEL__ = level
 
     def setKernelInfo(self, isaVersion: Tuple[int, int, int], wavefrontSize: int) -> None:
         if isaVersion not in self._isaInfo: # type: ignore
@@ -153,7 +150,7 @@ class Item:
     @property
     def archCaps(self) -> dict:
         return _global_ti.getArchCaps()
-    
+
     @property
     def regCaps(self) -> dict:
         return _global_ti.getRegCaps()

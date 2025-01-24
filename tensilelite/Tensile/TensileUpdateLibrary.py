@@ -1,6 +1,6 @@
 ###############################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -149,7 +149,7 @@ def TensileUpdateLibrary(userArgs):
     for logicFile in logicFiles:
         print("#   %s" % logicFile)
     fIter = zip(logicFiles, itertools.repeat(args.logic_path), itertools.repeat(outputPath))
-    libraries = ParallelMap(UpdateLogic, fIter, "Updating logic files", method=lambda x: x.starmap)
+    ParallelMap(UpdateLogic, fIter, "Updating logic files", method=lambda x: x.starmap)
 
 
 def main():

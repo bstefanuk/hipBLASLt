@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,14 +20,26 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Base import Item, fastdeepcopy
-from .Enums import InstType, CvtType
-from .Containers import DSModifiers, FLATModifiers, MUBUFModifiers, SMEMModifiers, SDWAModifiers, VOP3PModifiers, VCC, \
-                        RegisterContainer, HolderContainer, EXEC
-from .Formatting import formatStr, printExit
 import abc
 from enum import Enum
 from typing import List, Optional, Union
+
+from .Base import Item, fastdeepcopy
+from .Containers import (
+    EXEC,
+    VCC,
+    DSModifiers,
+    FLATModifiers,
+    HolderContainer,
+    MUBUFModifiers,
+    RegisterContainer,
+    SDWAModifiers,
+    SMEMModifiers,
+    VOP3PModifiers,
+)
+from .Enums import CvtType, InstType
+from .Formatting import formatStr, printExit
+
 #from .Utils import sgpr
 
 ################################################################################
@@ -1269,21 +1281,6 @@ class SCmpGeI32(CommonInstruction):
     def __init__(self, src0, src1, comment="") -> None:
         super().__init__(InstType.INST_I32, None, [src0, src1], None, None, comment)
         self.setInst("s_cmp_ge_i32")
-
-class SCmpGeU32(CommonInstruction):
-    def __init__(self, src0, src1, comment="") -> None:
-        super().__init__(InstType.INST_U32, None, [src0, src1], None, None, comment)
-        self.setInst("s_cmp_ge_u32")
-
-class SCmpGtI32(CommonInstruction):
-    def __init__(self, src0, src1, comment="") -> None:
-        super().__init__(InstType.INST_I32, None, [src0, src1], None, None, comment)
-        self.setInst("s_cmp_gt_i32")
-
-class SCmpGtU32(CommonInstruction):
-    def __init__(self, src0, src1, comment="") -> None:
-        super().__init__(InstType.INST_U32, None, [src0, src1], None, None, comment)
-        self.setInst("s_cmp_gt_u32")
 
 class SCmpGeU32(CommonInstruction):
     def __init__(self, src0, src1, comment="") -> None:
@@ -2793,8 +2790,8 @@ class VMovB64(CompositeInstruction):
             if isinstance(self.srcs[0], RegisterContainer) or isinstance(self.srcs[0], HolderContainer):
                 src1, src2 = self.srcs[0].splitRegContainer()
             else:
-                srcs1 = (self.srcs[0] and 0xFFFFFFFF)
-                srcs2 = self.srcs[0] >> 32
+                src1 = (self.srcs[0] and 0xFFFFFFFF)
+                src2 = self.srcs[0] >> 32
             self.instructions = [VMovB32(dst1, src1, self.comment),
                                  VMovB32(dst2, src2, self.comment)]
 

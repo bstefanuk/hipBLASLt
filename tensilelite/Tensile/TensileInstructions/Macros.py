@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,13 +22,32 @@
 
 from .Code import Macro, Module
 from .Containers import VCC
-from .Instructions import SAndB32, SAndB64, VAddCOU32, VAddU32, \
-                        VCmpGEU32, VCmpLeU32, VCmpNeI32, VCndMaskB32, \
-                        VCvtF32toU32, VCvtU32toF32, VMulF32, \
-                        VMulHIU32, VMulLOU32, VRcpF32, VLShiftRightB32, \
-                        VLShiftRightB64, VSubCoU32, \
-                        VXorB32, VMulU32U24, VAndB32, VLShiftLeftB32, _VLShiftLeftOrB32
-from .Utils import vgpr, sgpr
+from .Instructions import (
+    SAndB32,
+    SAndB64,
+    VAddCOU32,
+    VAddU32,
+    VAndB32,
+    VCmpGEU32,
+    VCmpLeU32,
+    VCmpNeI32,
+    VCndMaskB32,
+    VCvtF32toU32,
+    VCvtU32toF32,
+    VLShiftLeftB32,
+    VLShiftRightB32,
+    VLShiftRightB64,
+    VMulF32,
+    VMulHIU32,
+    VMulLOU32,
+    VMulU32U24,
+    VRcpF32,
+    VSubCoU32,
+    VXorB32,
+    _VLShiftLeftOrB32,
+)
+from .Utils import sgpr, vgpr
+
 
 # Performs a division using 'magic number' computed on host
 # Argument requirements:

@@ -81,11 +81,6 @@ def apply_print_exception(item, *args):
     sys.stdout.flush()
     sys.stderr.flush()
 
-def OverwriteGlobalParameters(newGlobalParameters):
-  from . import Common
-  Common.globalParameters.clear()
-  Common.globalParameters.update(newGlobalParameters)
-
 def ProcessingPool(enable=True, maxTasksPerChild=None):
   import multiprocessing
   import multiprocessing.dummy

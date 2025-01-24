@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,17 +22,16 @@
 #
 ################################################################################
 
-from .Code import Module
-from .Formatting import print2, printExit, printWarning
-from .Instructions import SMovB32, VMovB32
-from .Utils import vgpr, sgpr, roundUpToNearestMultiple
-
+import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
 
-import traceback
+from .Code import Module
+from .Formatting import print2, printExit, printWarning
+from .Instructions import SMovB32, VMovB32
+from .Utils import roundUpToNearestMultiple, sgpr, vgpr
 
 ################################################################################
 # RegisterPool
@@ -415,7 +414,7 @@ class RegisterPool:
   def stateDetailed(self):
     for index, register in enumerate(self.pool):
         print("%u: %s"%(index, register.tag))
-  
+
   def growPool(self, rangeStart: int, rangeEnd: int, checkOutSize: int, comment: str=""):
     tl = []
     for _ in range(rangeStart, rangeEnd):

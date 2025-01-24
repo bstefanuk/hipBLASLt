@@ -24,7 +24,7 @@
 
 from . import __version__
 from . import Parallel
-from .TensileInstructions import getGfxName, TensileInstructions
+from .TensileInstructions.Base import TensileInstructions, getGfxName
 from collections import OrderedDict
 from copy import deepcopy
 from typing import Tuple
@@ -35,7 +35,7 @@ import subprocess
 import sys
 import time
 import re
-    
+
 
 IsaVersion = Tuple[int, int, int]
 
@@ -53,7 +53,6 @@ ParallelMap2 = Parallel.ParallelMap2
 # Global Parameters
 ################################################################################
 globalParameters = OrderedDict()
-workingDirectoryStack = []
 
 ########################################
 # common
@@ -61,7 +60,6 @@ workingDirectoryStack = []
 globalParameters["MinimumRequiredVersion"] = "0.0.0" # which version of tensile is required to handle all the features required by this configuration file
 globalParameters["PerformanceMetric"] = "DeviceEfficiency" # performance metric for benchmarking; one of {DeviceEfficiency, CUEfficiency}
 globalParameters["PrintLevel"] = 1                # how much info to print in generator. 0=none, 1=standard, 2=verbose
-globalParameters["PrintTiming"] = False           # print duration for each stage in generator.
 globalParameters["ClientLogLevel"] = 3            # the log level of client. 0=Error, 1=Terse, 2=Verbose, 3=Debug (Aligned with ResultReporter.hpp)
 # benchmarking
 globalParameters["KernelTime"] = False            # T=use device timers, F=use host timers
@@ -241,7 +239,6 @@ globalParameters["CurrentISA"] = (0,0,0)
 globalParameters["AMDGPUArchPath"] = None      # /opt/rocm/llvm/bin/amdgpu-arch
 globalParameters["ROCmAgentEnumeratorPath"] = None      # /opt/rocm/bin/rocm_agent_enumerator
 globalParameters["ROCmSMIPath"] = None                  # /opt/rocm/bin/rocm-smi
-globalParameters["WorkingPath"] = os.getcwd()           # path where tensile called from
 globalParameters["IndexChars"] =  "IJKLMNOPQRSTUVWXYZ"  # which characters to use for C[ij]=Sum[k] A[ik]*B[jk]
 globalParameters["ScriptPath"] = os.path.dirname(os.path.realpath(__file__))            # path to Tensile/Tensile.py
 globalParameters["SourcePath"] = os.path.join(globalParameters["ScriptPath"], "Source") # path to Tensile/Source/
@@ -1683,7 +1680,7 @@ def assignGlobalParameters(config, cxxCompiler=None):
   # ROCm Agent Enumerator Path
   if os.name == "nt":
     globalParameters["AMDGPUArchPath"] = locateExe(globalParameters["ROCmBinPath"], "hipinfo.exe")
-    globalParameters["ROCmAgentEnumeratorPath"] = locateExe(globalParameters["ROCmBinPath"], "hipinfo.exe")    
+    globalParameters["ROCmAgentEnumeratorPath"] = locateExe(globalParameters["ROCmBinPath"], "hipinfo.exe")
   else:
     globalParameters["AMDGPUArchPath"] = locateExe(globalParameters["ROCmPath"], "llvm/bin/amdgpu-arch")
     globalParameters["ROCmAgentEnumeratorPath"] = locateExe(globalParameters["ROCmBinPath"], "rocm_agent_enumerator")
@@ -1760,7 +1757,22 @@ def assignGlobalParameters(config, cxxCompiler=None):
   except (subprocess.CalledProcessError, OSError) as e:
       printWarning("Error: {} running {} {} ".format('hipcc', '--version',  e))
 
+  # The following keys may be present in the config, but are not (or no longer) global parameters.
+  ignoreKeys = [
+    "UseCompression",
+    "CxxCompiler",
+    "CCompiler",
+    "OffloadBundler",
+    "Assembler",
+    "LogicPath",
+    "LogicFilter",
+    "OutputPath",
+    "Experimental",
+    "GenSolTable"
+  ]
   for key in config:
+    if key in ignoreKeys:
+      continue
     value = config[key]
     if key not in globalParameters:
       printWarning("Global parameter %s = %s unrecognised." % ( key, value ))
@@ -1788,22 +1800,7 @@ def assignParameterWithDefault(destinationDictionary, key, sourceDictionary, \
   else:
     destinationDictionary[key] = deepcopy(defaultDictionary[key])
 
-################################################################################
-# Push / Pop Working Path
-# store a WorkingPath where to write files (like benchmark files)
-################################################################################
-def pushWorkingPath( foldername ):
-  # Warning: this is not thread-safe, modifies the global WorkingPath!
-  globalParameters["WorkingPath"] = \
-      os.path.join(globalParameters["WorkingPath"], foldername )
-  return ensurePath( globalParameters["WorkingPath"] )
-def popWorkingPath():
-  # Warning: this is not thread-safe, modifies the global WorkingPath!
-  if len(workingDirectoryStack) == 0:
-    globalParameters["WorkingPath"] = \
-      os.path.split(globalParameters["WorkingPath"])[0]
-  else:
-    globalParameters["WorkingPath"] = workingDirectoryStack.pop()
+
 def ensurePath(path):
   try:
     os.makedirs(path)
@@ -1812,10 +1809,6 @@ def ensurePath(path):
   except OSError:
     printExit("Failed to create directory \"%s\" " % (path) )
   return path
-def setWorkingPath( fullPathName ):
-  # Warning: this is not thread-safe, modifies the global WorkingPath!
-  workingDirectoryStack.append(globalParameters["WorkingPath"])
-  globalParameters["WorkingPath"] = ensurePath(fullPathName)
 
 
 def roundUp(f):

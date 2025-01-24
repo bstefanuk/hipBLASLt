@@ -2,7 +2,7 @@
  *
  * MIT License
  *
- * Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -704,9 +704,9 @@ namespace TensileLite
                         }
                         auto& pristine = m_vdata[i].pristine[dataType];
                         pristine.initDescriptor.resize(1);
-                        
-                        auto numAllocatedElements = problem.tensors()[i].totalAllocatedElements(); 
-                        auto numAllocatedBytes = problem.tensors()[i].totalAllocatedBytes(); 
+
+                        auto numAllocatedElements = problem.tensors()[i].totalAllocatedElements();
+                        auto numAllocatedBytes = problem.tensors()[i].totalAllocatedBytes();
 
                         if ((problem.swizzleTensorA() && i == ContractionProblemGemm::TENSOR::A)
                             || (problem.swizzleTensorB() && i == ContractionProblemGemm::TENSOR::B))

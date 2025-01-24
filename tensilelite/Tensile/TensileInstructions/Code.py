@@ -20,15 +20,14 @@
 # CTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ################################################################################
 
-from .Base import Item, getGfxName
-from .Enums import SignatureValueKind
-from .Formatting import slash, slash50, block, block3Line, blockNewLine, \
-                        formatStr, printExit
-from .Instructions import Instruction, MacroInstruction
-
+import ctypes
 from math import ceil
 from typing import Optional
-import ctypes
+
+from .Base import Item, getGfxName
+from .Enums import SignatureValueKind
+from .Formatting import block, block3Line, blockNewLine, formatStr, slash, slash50
+from .Instructions import Instruction, MacroInstruction
 
 # Global to print module names around strings
 printModuleNames = 0
@@ -693,7 +692,7 @@ class _SignatureKernelDescriptor(Item):
 
     def getNextFreeVgpr(self) -> int:
         return self.totalVgprs
-    
+
     def getNextFreeSgpr(self) -> int:
         return self.totalSgprs
 
@@ -898,7 +897,7 @@ class KernelBody(Item):
         self.totalSgprs = totalSgprs
         self.signature.setGprs(totalVgprs=totalVgprs, totalAgprs=totalAgprs, \
             totalSgprs=totalSgprs)
-        
+
     def getNextFreeVgpr(self) -> int:
         return self.signature.getNextFreeVgpr()
 

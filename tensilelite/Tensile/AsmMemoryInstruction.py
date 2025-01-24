@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -23,10 +23,7 @@
 ################################################################################
 
 from .Common import printExit
-from .TensileInstructions import DSStoreB8, DSStoreB8HID16, ReadWriteInstruction, \
-                        DSLoadD16HIU16, DSLoadD16HIU8, \
-                        DSLoadU8, DSLoadU16, DSStoreD16HIB16, \
-                        DSStoreB16
+from .TensileInstructions import Instructions as ti
 
 from dataclasses import dataclass, field
 from typing import Type
@@ -36,7 +33,7 @@ from typing import Type
 ################################################################################
 @dataclass
 class MemoryInstruction:
-    inst: Type[ReadWriteInstruction]
+    inst: Type[ti.ReadWriteInstruction]
     numAddresses: int
     numOffsets: int
     offsetMultiplier: int
@@ -52,14 +49,14 @@ class MemoryInstruction:
 
     def getInst(self, highBits=0):
         if highBits:
-            if self.inst is DSLoadU8:
-                return DSLoadD16HIU8
-            elif self.inst is DSLoadU16:
-                return DSLoadD16HIU16
-            elif self.inst is DSStoreB16:
-                return DSStoreD16HIB16
-            elif self.inst is DSStoreB8:
-                return DSStoreB8HID16
+            if self.inst is ti.DSLoadU8:
+                return ti.DSLoadD16HIU8
+            elif self.inst is ti.DSLoadU16:
+                return ti.DSLoadD16HIU16
+            elif self.inst is ti.DSStoreB16:
+                return ti.DSStoreD16HIB16
+            elif self.inst is ti.DSStoreB8:
+                return ti.DSStoreB8HID16
             else:
                 printExit(str(self.inst) + " does not support high bits instructions.")
 

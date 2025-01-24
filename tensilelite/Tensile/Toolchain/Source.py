@@ -82,7 +82,7 @@ class SourceToolchain:
         hipFlags = [
             "-D__HIP_HCC_COMPAT_MODE__=1",
             "--offload-device-only",
-            "-x", "hip", "-O3",    
+            "-x", "hip", "-O3",
             "-I", includePath,
             "-Xoffload-linker", f"--build-id={self.buildIdKind}",
             "-std=c++17",
@@ -100,7 +100,7 @@ class SourceToolchain:
             *launcher, self.compiler, *hipFlags, *archFlags, srcPath, "-c", "-o", destPath
         ]
 
-        return self.invoke(args, f"Compiling HIP source kernels into objects (.cpp -> .o)")
+        return self.invoke(args, "Compiling HIP source kernels into objects (.cpp -> .o)")
 
 
     def targets(self, objFile: str):
@@ -113,7 +113,7 @@ class SourceToolchain:
             List of target triples in the object file.
         """
         args = [self.bundler, "--type=o", f"--input={objFile}", "-list"]
-        return self.invoke(args, f"Listing target triples in object file").decode().split("\n")
+        return self.invoke(args, "Listing target triples in object file").decode().split("\n")
 
     def unbundle(self, target: str, srcPath: str, destPath: str):
         """Unbundles source code object files using the Clang Offload Bundler.
@@ -135,8 +135,8 @@ class SourceToolchain:
             "--unbundle",
         ]
 
-        return self.invoke(args, f"Unbundling source code object file")
-            
+        return self.invoke(args, "Unbundling source code object file")
+
 
 def _computeSourceCodeObjectFilename(target: str, base: str, buildPath: Union[Path, str], arch: str) -> Union[Path, None]:
     """Generates a code object file path using the target, base, and build path.
@@ -164,13 +164,14 @@ def _computeSourceCodeObjectFilename(target: str, base: str, buildPath: Union[Pa
     return coPath
 
 
-def buildSourceCodeObjectFile(toolchain: SourceToolchain, outputPath: Union[Path, str], kernelPath: Union[Path, str]) -> List[str]:
+def buildSourceCodeObjectFiles(toolchain: SourceToolchain, destDir: Union[Path, str], tmpObjDir: Union[Path, str], includeDir: Union[Path, str], kernelPath: Union[Path, str]) -> List[str]:
     """Compiles a HIP source code file into a code object file.
 
     Args:
-        cxxCompiler: The C++ compiler to use.
-        cxxCompiler: The offload bundler to use.
-        outputPath: The output directory path where code objects will be placed.
+        toolchain: The source toolchain.
+        destDir: The destination directory where HSA code object files are placed.
+        tmpObjDir: The directory where HIP source object files are created.
+        includeDir: The include directory path.
         kernelPath: The path to the kernel source file.
 
     Returns:
@@ -178,8 +179,8 @@ def buildSourceCodeObjectFile(toolchain: SourceToolchain, outputPath: Union[Path
     """
     start = timer()
 
-    buildPath = Path(ensurePath(os.path.join(globalParameters['WorkingPath'], 'code_object_tmp')))
-    destPath = Path(ensurePath(os.path.join(outputPath, 'library')))
+    tmpObjDir = Path(ensurePath(tmpObjDir))
+    destDir = Path(ensurePath(destDir))
     kernelPath = Path(kernelPath)
 
     if "CmakeCxxCompiler" in globalParameters and globalParameters["CmakeCxxCompiler"] is not None:
@@ -191,18 +192,18 @@ def buildSourceCodeObjectFile(toolchain: SourceToolchain, outputPath: Union[Path
 
     _, cmdlineArchs = splitArchs()
 
-    objPath = str(buildPath / objFilename)
-    toolchain.compile(str(kernelPath), objPath, str(outputPath), cmdlineArchs)
+    objPath = str(tmpObjDir / objFilename)
+    toolchain.compile(str(kernelPath), objPath, str(includeDir), cmdlineArchs)
 
     for target in toolchain.targets(objPath):
       match = re.search("gfx.*$", target)
       if match:
         arch = re.sub(":", "-", match.group())
-        coPathRaw = _computeSourceCodeObjectFilename(target, kernelPath.stem, buildPath, arch)
+        coPathRaw = _computeSourceCodeObjectFilename(target, kernelPath.stem, tmpObjDir, arch)
         if not coPathRaw: continue
         toolchain.unbundle(target, objPath, str(coPathRaw))
 
-        coPath = str(destPath / coPathRaw.stem)
+        coPath = str(destDir / coPathRaw.stem)
         coPathsRaw.append(coPathRaw)
         coPaths.append(coPath)
 

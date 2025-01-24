@@ -25,11 +25,10 @@
 from ..Component import Signature
 from ..Common import globalParameters
 from ..Utils import DataDirection
-from ..TensileInstructions import SignatureBase
-from ..TensileInstructions import SignatureValueKind as SVK
+from ..TensileInstructions.Code import SignatureBase
+from ..TensileInstructions.Enums import SignatureValueKind as SVK
 from ..Activation import ActivationType
 
-from math import ceil
 from dataclasses import dataclass, field
 
 @dataclass

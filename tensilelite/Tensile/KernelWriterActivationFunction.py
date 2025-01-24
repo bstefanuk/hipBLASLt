@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright (C) 2022-2023 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,8 +22,8 @@
 
 from copy import deepcopy
 
-from .TensileInstructions import TensileInstructions
-from .Common import globalParameters, CHeader, gfxArch, getGfxName
+from .TensileInstructions.Base import TensileInstructions
+from .Common import globalParameters, gfxArch, getGfxName
 from .Activation import ActivationInline, ActivationType
 from .KernelWriterBase import KernelWriterBase
 
@@ -137,7 +137,8 @@ class KernelWriterActivationFunction(KernelWriterBase):
 
   def getHeaderFileString(self):
     if self.state["ProblemType"]["ActivationType"] == 'none':
-      return fileString
+      raise RuntimeError("'ActiviationType'='none' is not supported in because there is an undefined variable 'fileString' would be returned. This is an error with tensilelite, please file a bug in hipBLASLt.")
+      # return fileString
 
     isa = tuple(self.state["Kernel"]["ISA"])
     self._tf.init(isa, self.cxxCompiler)

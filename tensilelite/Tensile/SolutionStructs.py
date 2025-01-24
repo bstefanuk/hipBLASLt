@@ -28,8 +28,8 @@ from .Common import assignParameterWithDefault, \
                     globalParameters, internalParameters, \
                     print2, printExit, printWarning, \
                     validMFMA, validSMFMA, validParameters, \
-                    validGEMMTypes, HPATypes, roundUp, validWMMA
-from .TensileInstructions import DataType, roundUpToNearestMultiple
+                    validGEMMTypes, HPATypes, validWMMA, roundUp
+from .TensileInstructions.Utils import DataType, roundUpToNearestMultiple
 from .TensileInstructions.Base import fastdeepcopy as deepcopy
 
 from .KernelWriterBetaOnly import KernelWriterBetaOnly
@@ -39,10 +39,11 @@ from .KernelWriterActivationFunction import KernelWriterActivationFunction
 from .KernelWriterActivationOnly import KernelWriterActivationOnly
 from .KernelWriterReduction import KernelWriterReduction
 
-from .AsmStoreState import VectorDataTypes
 from .Activation import ActivationType
 
+from .AsmStoreState import VectorDataTypes
 from .CustomKernels import isCustomKernelConfig
+
 
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -1826,7 +1827,6 @@ class Solution(collections.abc.Mapping):
   # determine can we use DirectToVgpr
   @staticmethod
   def isDirectToVgprDoable(state, tc):
-    MIindex = 0 if tc == 'A' else 1
     numBytes = state["ProblemType"]["DataType"].numBytes()
     numBytesGR = state["ProblemType"]["DataType%s"%tc].numBytes()
     # With MatrixInstruction only
@@ -2205,7 +2205,7 @@ class Solution(collections.abc.Mapping):
       if state["ScheduleGlobalRead"] != 1:
         reject(state, "ScheduleGlobalRead not supported with Stream-K")
       if state["ScheduleLocalWrite"] != 1:
-        reject(statue, "ScheduleLocalWrite not supported with Stream-K")
+        reject(state, "ScheduleLocalWrite not supported with Stream-K")
       if state["ScheduleIterAlg"] != 1 and state["ScheduleIterAlg"] != 3:
         reject(state, "ScheduleIterAlg not supported with Stream-K")
       if state["StreamKAtomic"] == 1:
@@ -2810,16 +2810,16 @@ class Solution(collections.abc.Mapping):
 
     if state["ProblemType"]["SwizzleTensorA"]:
       if not state["DirectToVgprA"]:
-        reject(state, f"Tensor A swizzling requires DirectToVgprA")
+        reject(state, "Tensor A swizzling requires DirectToVgprA")
       if not state["ProblemType"]["TransposeA"]:
-        reject(state, f"Tensor A swizzling supports TN or TT only")
+        reject(state, "Tensor A swizzling supports TN or TT only")
 
     if state["ProblemType"]["SwizzleTensorB"]:
       if not state["DirectToVgprB"]:
-        reject(state, f"Tensor B swizzling requires DirectToVgprB")
+        reject(state, "Tensor B swizzling requires DirectToVgprB")
       # TODO- NN fails validation due to DTVB + Tail-Loop is not working correctly
       if not (state["ProblemType"]["TransposeA"] and not state["ProblemType"]["TransposeB"]):
-        reject(state, f"Tensor B swizzling supports TN only")
+        reject(state, "Tensor B swizzling supports TN only")
 
     def calcOptGRVW(lrvw: int, unrollMajorLDS: bool, datatype: DataType) -> int:
       # with UnrollMajorLDS, GRVW need to less or equal than LRVW to have conflict free LDS read with padding.
@@ -3187,7 +3187,6 @@ class Solution(collections.abc.Mapping):
         if GlobalReadVectorWidthMetadata == 0:
           GlobalReadVectorWidthMetadata = 1
         totalVectorsCoalescedM = totalElementsCoalescedM // GlobalReadVectorWidthMetadata
-        totalVectorsM = totalElementsM // GlobalReadVectorWidthMetadata
       else:
         GlobalReadVectorWidth = state["GlobalReadVectorWidthMetadata"] * state["NumLoadsPerpendicularA"] #sum all need read
         tvm = totalElementsM // GlobalReadVectorWidth
@@ -3199,14 +3198,11 @@ class Solution(collections.abc.Mapping):
         GlobalReadVectorWidthMetadata = state["GlobalReadVectorWidthMetadata"]
         if GlobalReadVectorWidthMetadata == 0:
           GlobalReadVectorWidthMetadata = 1
-        totalVectorsCoalescedM = totalElementsCoalescedM // GlobalReadVectorWidthMetadata
-        totalVectorsM = totalElementsM // GlobalReadVectorWidthMetadata
 
       if not Solution.setGlobalLoadTileDimClassic(state, "Metadata", state["NumLoadsMetadata"], \
           totalVectorsCoalescedM, totalElementsPerpM, depthUM):
         return
 
-    # TODO
     if (0 and state["LSCA"] % state["GlobalReadVectorWidthA"] != 0):
       reject(state, "lsca % grvw != 0")
       return
@@ -3231,9 +3227,9 @@ class Solution(collections.abc.Mapping):
 
     for tc in ('A','B'):
       if problemType["TLU%s"%tc]:
-        pos = problemType["IndexAssignments%s"%tc].index(problemType["Index01%s"%tc])
+        problemType["IndexAssignments%s"%tc].index(problemType["Index01%s"%tc])
       else:
-        pos = problemType["IndexAssignments%s"%tc].index(problemType["IndexUnroll"])
+        problemType["IndexAssignments%s"%tc].index(problemType["IndexUnroll"])
 
     # Some of these might become 0?
     if 0:
@@ -3407,11 +3403,11 @@ class Solution(collections.abc.Mapping):
           wtc = False # Vector
           # writeCoal indicates writes should be done in the coal dim or else perp
           nwcv = vw
-          nwpv = 1
+          # nwpv = 1  #TODO(check for deletion)
         else: # TN yes transpose
           wtc = True
           nwcv = 1
-          nwpv = vw
+          # nwpv = vw #TODO(check for deletion)
 
         blockWidth = findValidWriteBlockWidth(nwcv, bpe, bpr)
         nwcvpi = int(blockWidth * bpr / bpe)
