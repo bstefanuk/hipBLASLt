@@ -284,7 +284,7 @@ def writeRunScript(path, forBenchmark, enableTileSelection, cxxCompiler: str, cC
 
     clientExe = ClientExecutable.getClientExecutable(cxxCompiler, cCompiler, buildDir)
     for configFile in configPaths:
-      runScriptFile.write("{} --config-file {} {}\n".format(clientExe, configFile, globalParameters["ClientArgs"]))
+      runScriptFile.write("{} --config-file {}\n".format(clientExe, configFile))
     runScriptFile.write("ERR2=$?\n\n")
 
     runScriptFile.write("""
@@ -307,7 +307,7 @@ fi
         runScriptFile.write("%s -d 0 --setfan 50\n" % globalParameters["ROCmSMIPath"])
   else:
     for configFile in configPaths:
-      runScriptFile.write("{} --config-file {} {} --best-solution 1\n".format(ClientExecutable.getClientExecutable(cxxCompiler, cCompiler, buildDir), configFile, globalParameters["ClientArgs"]))
+      runScriptFile.write("{} --config-file {} --best-solution 1\n".format(ClientExecutable.getClientExecutable(cxxCompiler, cCompiler, buildDir), configFile))
   if os.name != "nt":
     runScriptFile.write("exit $ERR\n")
   runScriptFile.close()
