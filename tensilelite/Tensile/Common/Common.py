@@ -77,8 +77,6 @@ globalParameters["SkipSlowSolutionRatio"] = 0.0   # Skip slow solution during wa
 #     Medium size: 0.75
 #     Large size :  0.9
 
-# cProfile
-globalParameters["Profiler"] = 0                  # Enable profiler. 0=off, 1=cProfile. This will set CpuThreads to 1.
 # validation
 globalParameters["NumElementsToValidate"] = 128   # number of elements to validate, 128 will be evenly spaced out (with prime number stride) across C tensor
 globalParameters["NumElementsToValidateWinner"] = 0   # number of elements to validate in LibraryClient stage, the exact number to be validated is max(NumElementsToValidate,NumElementsToValidateWinner)

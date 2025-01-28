@@ -36,6 +36,7 @@ from .Common import globalParameters, print1, printExit, printWarning, ensurePat
 from .Toolchain.Assembly import AssemblyToolchain
 from .Toolchain.Source import SourceToolchain
 from .Toolchain.Validators import validateToolchain, ToolchainDefaults
+from .Utilities.Decorators.Profile import profile
 from . import BenchmarkProblems
 from . import ClientWriter
 from . import LibraryIO
@@ -52,6 +53,7 @@ from pathlib import Path
 #   LibraryLogic.main() to analyse final benchmark data and produce logic/yaml
 #   ClientWriter.main() to create client which calls library based on above yaml
 ################################################################################
+@profile
 def executeStepsInConfig(
         config: dict,
         outputPath: Path,
@@ -307,23 +309,7 @@ def Tensile(userArgs):
         print("Overriding {0}={1}".format(key, value))
         globalParameters[key] = value
 
-    # Enable profiler
-    profiler = None
-    if globalParameters["Profiler"] == 1:
-        printWarning("cProfiler is enabled. CpuThreads will be set to 1.")
-        globalParameters["CpuThreads"] = 1
-        import cProfile
-        profiler = cProfile.Profile()
-        profiler.enable()
-
     executeStepsInConfig(config, outputPath, asmToolchain, srcToolchain, cCompiler)
-
-    if profiler:
-        profiler.disable()
-        filename = outputPath / "tensile.stats"
-        profiler.dump_stats(filename)
-        filename = outputPath / "tensile.prof"
-        profiler.dump_stats(filename)
 
 def TensileConfigPath(*args):
     return os.path.join(os.path.dirname(os.path.realpath(__file__)), "Configs", *args)
