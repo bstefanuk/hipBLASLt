@@ -266,7 +266,6 @@ globalParameters["RotatingMode"] = 0 # Default is 0, allocated in order A0B0C0D0
                                      # Mode 0 requires memcpy everytime when the problem changes to reset the data, but mode 1 doesn't.
 
 globalParameters["BuildIdKind"] = "sha1"
-globalParameters["ValidateLibrary"] = False
 globalParameters["AsmDebug"] = False # Set to True to keep debug information for compiled code objects
 
 globalParameters["UseEffLike"] = True # Set to False to use winnerGFlops as the performance metric
