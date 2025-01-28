@@ -97,7 +97,6 @@ def main(config, cxxCompiler: str, cCompiler: str, outputPath: Path):
   print1("LogicFiles: %s" % logicFiles)
   functions = []
   functionNames = []
-  enableHalf = False
 
   createLibraryScript = getBuildClientLibraryScript(clientLibraryPath, libraryLogicPath, cxxCompiler)
   subprocess.run(shlex.split(createLibraryScript), cwd=clientLibraryPath)
@@ -108,8 +107,6 @@ def main(config, cxxCompiler: str, cCompiler: str, outputPath: Path):
   for logicFileName in logicFiles:
     (scheduleName, _, problemType, _, exactLogic, newLibrary, _) \
         = LibraryIO.parseLibraryLogicFile(logicFileName, cxxCompiler)
-    if problemType["DataType"].isHalf():
-        enableHalf = True
     functions.append((scheduleName, problemType))
     functionNames.append("tensile_%s" % (problemType))
     problemSizes = ProblemSizesMock(exactLogic) if exactLogic else ProblemSizesMockDummy()
@@ -156,7 +153,6 @@ def main(config, cxxCompiler: str, cCompiler: str, outputPath: Path):
                                   codeObjectFiles=coList,
                                   tileAwareSelection=False,
                                   libraryFile=yamlList[0]))
-  globalParameters["EnableHalf"] = enableHalf
 
   forBenchmark = False
   problemSizes = None

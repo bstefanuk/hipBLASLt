@@ -235,7 +235,6 @@ globalParameters["CodeObjectVersion"] = "4"
 globalParameters["Architecture"] = "all"
 
 # might be deprecated
-globalParameters["EnableHalf"] = False
 globalParameters["ClientArgs"] = ""
 
 # perf model
