@@ -35,7 +35,8 @@ from . import ROOT_PATH
 from . import ClientExecutable
 from . import LibraryIO
 from .TensileInstructions import getGfxName, DataType
-from .Common import globalParameters, ensurePath, print1, printExit, CHeader, printWarning, listToInitializer, ClientExecutionLock
+from .Common import globalParameters, ensurePath, print1, printExit, printWarning, ClientExecutionLock, \
+    LIBRARY_LOGIC_DIR, LIBRARY_CLIENT_DIR
 from .SolutionStructs import Problem, ProblemType, ProblemSizesMock, ProblemSizesMockDummy, ActivationArgs, BiasTypeArgs, FactorDimArgs
 from .TensileCreateLibrary import copyStaticFiles
 from .Contractions import FreeIndex, BatchIndex
@@ -81,8 +82,8 @@ class ClientLogLevel(Enum):
 ################################################################################
 def main(config, cxxCompiler: str, cCompiler: str, outputPath: Path):
 
-  libraryLogicPath = ensurePath(outputPath / globalParameters["LibraryLogicPath"])
-  clientLibraryPath = ensurePath(outputPath / globalParameters["LibraryClientPath"])
+  libraryLogicPath = ensurePath(outputPath / LIBRARY_LOGIC_DIR)
+  clientLibraryPath = ensurePath(outputPath / LIBRARY_CLIENT_DIR)
   sourcePath = ensurePath(clientLibraryPath / "source")
   copyStaticFiles(sourcePath)
 

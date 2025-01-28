@@ -28,7 +28,7 @@ import subprocess
 from typing import Optional
 from pathlib import Path
 
-from .Common import Common, globalParameters
+from .Common import Common, globalParameters, CLIENT_BUILD_DIR
 from Tensile import SOURCE_PATH
 
 class CMakeEnvironment:
@@ -81,7 +81,7 @@ def getClientExecutable(cxxCompiler: str, cCompiler: str, builddir):
     global buildEnv
 
     if buildEnv is None:
-        buildEnv = clientExecutableEnvironment(builddir / globalParameters["ClientBuildPath"], cxxCompiler, cCompiler)
+        buildEnv = clientExecutableEnvironment(builddir / CLIENT_BUILD_DIR, cxxCompiler, cCompiler)
         buildEnv.generate()
         buildEnv.build()
 

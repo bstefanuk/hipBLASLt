@@ -24,7 +24,8 @@
 
 from pathlib import Path
 from .Common import print1, print2, HR, printExit, defaultAnalysisParameters, globalParameters, \
-  assignParameterWithDefault, startTime, ProgressBar, printWarning, ensurePath
+  assignParameterWithDefault, startTime, ProgressBar, printWarning, ensurePath, \
+  BENCHMARK_DATA_DIR, LIBRARY_LOGIC_DIR
 from .SolutionStructs import Solution
 from . import LibraryIO
 from . import SolutionSelectionLibrary
@@ -1549,6 +1550,6 @@ def handle_frequency_issue(message):
 ################################################################################
 ################################################################################
 def main(config, cxxCompiler: str, outputPath: Path):
-  benchmarkDataPath = outputPath / globalParameters["BenchmarkDataPath"]
-  libraryLogicPath = outputPath / globalParameters["LibraryLogicPath"]
+  benchmarkDataPath = outputPath / BENCHMARK_DATA_DIR 
+  libraryLogicPath = outputPath / LIBRARY_LOGIC_DIR
   generateLogic(config, benchmarkDataPath, libraryLogicPath, cxxCompiler)

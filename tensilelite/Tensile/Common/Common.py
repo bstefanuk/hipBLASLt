@@ -216,11 +216,6 @@ globalParameters["MaxFileName"] = 64              # If a file name would be long
 globalParameters["SupportedISA"] = [(8,0,3), (9,0,0), (9,0,6), (9,0,8), (9,0,10), (9,4,0), (9,4,1), (9,4,2), (10,1,0), (10,1,1), (10,1,2), (10,3,0), (11,0,0), (11,0,1), (11,0,2), (12,0,0), (12,0,1)] # assembly kernels writer supports these architectures
 
 globalParameters["NewClient"] = 2                                 # Old client deprecated: NewClient must be set to 2.
-globalParameters["ClientBuildPath"] = "0_Build"                   # subdirectory for host code build directory
-globalParameters["BenchmarkProblemsPath"] = "1_BenchmarkProblems" # subdirectory for benchmarking phases
-globalParameters["BenchmarkDataPath"] = "2_BenchmarkData"         # subdirectory for storing final benchmarking data
-globalParameters["LibraryLogicPath"] = "3_LibraryLogic"           # subdirectory for library logic produced by analysis
-globalParameters["LibraryClientPath"] = "4_LibraryClient"         # subdirectory for building example library client
 globalParameters["ClientExecutionLockPath"] = None                # Path for a file lock to ensure only one client is executed at once.  filelock module is required if this is enabled.
 globalParameters["LibraryUpdateFile"] = ""                        # File name for writing indices and speeds suitable for updating an existing library logic file
 globalParameters["LibraryUpdateComment"] = False                  # Include solution name as a comment in the library update file
