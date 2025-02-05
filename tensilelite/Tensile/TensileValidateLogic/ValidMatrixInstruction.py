@@ -1,12 +1,9 @@
 import math
+import ray
 from pathlib import Path
 from warnings import warn
 
-<<<<<<< Updated upstream
-from Tensile.Common import globalParameters
-=======
-from Tensile.Common import globalParameters, IsaVersion
->>>>>>> Stashed changes
+from Tensile.Common import IsaVersion
 
 MI_KEY: str = "MatrixInstruction"
 MI_ENABLED_KEY: str = "EnableMatrixInstruction"
@@ -109,7 +106,8 @@ validMatrixInstructions = (
 )
 
 
-def validateMatrixInstruction(solution: dict, filepath: Path):
+@ray.remote
+def validateMatrixInstruction(solution: dict, filepath: Path, params: dict):
     keep = True
     if MI_KEY not in solution:
         warn(f"{MI_KEY} not in solution: file: {filepath}, index: {solution['SolutionIndex']}")
@@ -127,22 +125,9 @@ def validateMatrixInstruction(solution: dict, filepath: Path):
         )
         keep = False
 
-<<<<<<< Updated upstream
-    isa = tuple(solution["ISA"])
-    miFull = solution[MI_KEY]
-    miEnabled = solution[MI_ENABLED_KEY]
-    wfsize = solution["WavefrontSize"]
-    isSparse = solution["ProblemType"]["Sparse"]
-    miDataType = (
-        solution["ProblemType"]["DataType"]
-        if (not solution["EnableF32XdlMathOp"])
-        else solution["ProblemType"]["F32XdlMathOp"]
-    )
-=======
     isa = IsaVersion(solution["ISA"])
     miFull = solution[MI_KEY]
     miEnabled = solution[MI_ENABLED_KEY]
->>>>>>> Stashed changes
 
     if miFull not in validMatrixInstructions:
         warn(
@@ -156,8 +141,6 @@ def validateMatrixInstruction(solution: dict, filepath: Path):
         miwg0 = miFull[4] * miFull[0] * miFull[7]  # Matrix instruction work group 0
         miwg1 = waves * wfsize // miwg0
 
-<<<<<<< Updated upstream
-=======
         wfsize = solution["WavefrontSize"]
         isSparse = solution["ProblemType"]["Sparse"]
         miDataType = (
@@ -166,16 +149,15 @@ def validateMatrixInstruction(solution: dict, filepath: Path):
             else solution["ProblemType"]["F32XdlMathOp"]
         )
 
->>>>>>> Stashed changes
         assert solution["WorkGroup"] == [miwg0, miwg1]
 
         if not isSparse:
-            if globalParameters["AsmCaps"][isa]["HasMFMA"]:
+            if params["AsmCaps"][isa]["HasMFMA"]:
                 if not (miDataType.toChar() in validMFMA and mi in validMFMA[miDataType.toChar()]):
                     if not (miDataType.isBFloat16() and mi in validMFMA["B1k"]):
                         warn(f"Matrix instruction {mi} not valid for DataType {miDataType}")
                         keep = False
-            elif globalParameters["AsmCaps"][isa]["HasWMMA"]:
+            elif params["AsmCaps"][isa]["HasWMMA"]:
                 if mi not in validWMMA:
                     warn(f"Matrix instruction {mi} not valid for DataType {miDataType}")
                     keep = False
@@ -184,7 +166,7 @@ def validateMatrixInstruction(solution: dict, filepath: Path):
                 warn(f"Sparse matrix instruction {mi} not valid for DataType {miDataType}")
                 keep = False
 
-        if (not globalParameters["AsmCaps"][isa]["HasMFMA"]) and globalParameters["AsmCaps"][isa][
+        if (not params["AsmCaps"][isa]["HasMFMA"]) and params["AsmCaps"][isa][
             "HasWMMA"
         ]:
             if isa[0] == 10 or isa[0] == 11:
