@@ -125,7 +125,7 @@ def validateMatrixInstruction(solution: dict, filepath: Path, params: dict):
         )
         keep = False
 
-    isa = IsaVersion(solution["ISA"])
+    isa = tuple(solution["ISA"])
     miFull = solution[MI_KEY]
     miEnabled = solution[MI_ENABLED_KEY]
 

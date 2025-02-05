@@ -31,8 +31,8 @@ import json
 import subprocess
 from contextlib import contextmanager
 import Tensile.TensileInstructions as ti
-from .Common import detectGlobalCurrentISA, restoreDefaultGlobalParameters, \
-    assignGlobalParameters, getGfxName, gfxArch, globalParameters
+from Tensile.Common import detectGlobalCurrentISA, restoreDefaultGlobalParameters, \
+    assignGlobalParameters, getGfxName, getGfxArch, globalParameters
 from Tensile.Toolchain.Validators import ToolchainDefaults, validateToolchain
 
 def record_num_calls(f):
@@ -687,7 +687,7 @@ if __name__ == '__main__':
     toolchain_path: str = validateToolchain(args.toolchain)
     debug_build: bool = args.debug_build
     arch: str = args.arch
-    isa = gfxArch(arch)
+    isa = getGfxArch(arch)
 
     if any([not i for i in (arch, toolchain_path, isa)]):
         restoreDefaultGlobalParameters()
