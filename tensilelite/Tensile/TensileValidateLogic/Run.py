@@ -9,18 +9,11 @@ from Tensile.Toolchain.Validators import validateToolchain
 from .ParseArguments import parseArguments
 from .ValidMatrixInstruction import validateMatrixInstruction
 
-
-def run():
-    context = ray.init(dashboard_host="0.0.0.0")
-    print(f"Started ray with {context}")
-
-    args = parseArguments()
-    cxxCompiler = validateToolchain(args.CxxCompiler)
+def getParams(cxxCompiler):
     gp = globalParameters
 
-    gpcache = Path.cwd() / "gpcache.json"
+    gpcache = Path.cwd() / "gpcache.yaml"
     if gpcache.exists():
-        print("AHHH")
         with open(gpcache, "r") as f:
             gp = yaml.load(f, yaml.CSafeLoader)
     else:
@@ -28,29 +21,53 @@ def run():
         with open(gpcache, "w") as f:
             yaml.dump(gp, f, yaml.CSafeDumper)
 
+    return gp
+
+def run():
+
+    args = parseArguments()
+    cxxCompiler = validateToolchain(args.CxxCompiler)
+    gp = getParams(cxxCompiler)
+
+    logicPath = Path(args.LogicPath)
     pattern = "**/*.yaml"
-    files = Path(args.LogicPath).glob(pattern)
+    files = logicPath.glob(pattern)
     print(f"Checking logic files with glob {args.LogicPath}/{pattern}")
 
     if not any([args.CheckMatrixInstruction]):
         print("No checks specified. Exiting.")
-        return
+        exit(0)
+
+    context = ray.init(dashboard_host="0.0.0.0", num_cpus=32)
+    print(f"Started ray with {context}")
 
     keep = 0
     total = 0
-    print("Checking matrix instructions")
     for file in files:
         if "Experimental" in file.parts:
             continue
-        print(f"-> {file}")
+        print(f"-> {file.relative_to(logicPath)}")
         data = readYAML(file)
         solutions = data[5]  # Solutions are the 5th index
         for s in solutions:
             if args.CheckMatrixInstruction:
-                future = validateMatrixInstruction.remote(s, file, gp)
-                keep += int(ray.get(future))
                 total += 1
+                try:
+                    future = validateMatrixInstruction.remote(s, file.relative_to(logicPath), gp)
+                    ray.get(future)
+                except AssertionError as e:
+                    print(f"X> Rejecting {file.relative_to(logicPath)}: {e}")
+                    continue
+                keep += 1
+    ray.shutdown()
 
+    rejects = total - keep
     print(f"Total  {total} solutions")
     print(f"Keep   {keep} solutions")
-    print(f"Reject {total - keep} solutions")
+    print(f"Reject {rejects} solutions")
+
+    if rejects > 0:
+        exit(1)
+
+
+
