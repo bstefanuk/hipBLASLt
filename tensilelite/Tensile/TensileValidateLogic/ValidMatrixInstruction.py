@@ -108,32 +108,15 @@ validMatrixInstructions = (
 
 @ray.remote
 def validateMatrixInstruction(solution: dict, filepath: Path, params: dict):
-    keep = True
-    if MI_KEY not in solution:
-        warn(f"{MI_KEY} not in solution: file: {filepath}, index: {solution['SolutionIndex']}")
-        keep = False
-
-    if MI_ENABLED_KEY not in solution:
-        warn(
-            f"{MI_ENABLED_KEY} not in solution: file: {filepath}, index: {solution['SolutionIndex']}"
-        )
-        keep = False
-
-    if solution[MI_KEY] == [] and solution[MI_ENABLED_KEY] == True:
-        warn(
-            f"{MI_KEY} is empty but {MI_ENABLED_KEY} is True: file: {filepath}, index: {solution['SolutionIndex']}"
-        )
-        keep = False
+    assert MI_KEY in solution
+    assert MI_ENABLED_KEY in solution
+    assert not (solution[MI_KEY] == [] and solution[MI_ENABLED_KEY] == True)
 
     isa = tuple(solution["ISA"])
     miFull = solution[MI_KEY]
     miEnabled = solution[MI_ENABLED_KEY]
 
-    if miFull not in validMatrixInstructions:
-        warn(
-            f"Matrix instruction is not valid: file: {filepath}, index: {solution['SolutionIndex']}"
-        )
-        keep = False
+    assert miFull in validMatrixInstructions
 
     if len(solution[MI_KEY]) == 9:
         mi = [miFull[0], miFull[1], miFull[2], miFull[3]]
@@ -154,17 +137,11 @@ def validateMatrixInstruction(solution: dict, filepath: Path, params: dict):
         if not isSparse:
             if params["AsmCaps"][isa]["HasMFMA"]:
                 if not (miDataType.toChar() in validMFMA and mi in validMFMA[miDataType.toChar()]):
-                    if not (miDataType.isBFloat16() and mi in validMFMA["B1k"]):
-                        warn(f"Matrix instruction {mi} not valid for DataType {miDataType}")
-                        keep = False
+                    assert miDataType.isBFloat16() and mi in validMFMA["B1k"]
             elif params["AsmCaps"][isa]["HasWMMA"]:
-                if mi not in validWMMA:
-                    warn(f"Matrix instruction {mi} not valid for DataType {miDataType}")
-                    keep = False
+                assert mi in validWMMA
         else:
-            if not (miDataType.toChar() in validSMFMA and mi in validSMFMA[miDataType.toChar()]):
-                warn(f"Sparse matrix instruction {mi} not valid for DataType {miDataType}")
-                keep = False
+            assert miDataType.toChar() in validSMFMA and mi in validSMFMA[miDataType.toChar()]
 
         if (not params["AsmCaps"][isa]["HasMFMA"]) and params["AsmCaps"][isa][
             "HasWMMA"
@@ -225,5 +202,3 @@ def validateMatrixInstruction(solution: dict, filepath: Path, params: dict):
         assert miEnabled == True
     else:
         assert miEnabled == False
-
-    return keep
