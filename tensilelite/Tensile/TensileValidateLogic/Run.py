@@ -1,13 +1,14 @@
-import ray
-import yaml 
+import yaml
+import functools
 from pathlib import Path
 
-from Tensile.Common import globalParameters, assignGlobalParameters
+from Tensile.Common import globalParameters, assignGlobalParameters, ParallelMap2
 from Tensile.LibraryIO import readYAML
 from Tensile.Toolchain.Validators import validateToolchain
 
 from .ParseArguments import parseArguments
 from .ValidMatrixInstruction import validateMatrixInstruction
+
 
 def getParams(cxxCompiler):
     gp = globalParameters
@@ -23,7 +24,22 @@ def getParams(cxxCompiler):
 
     return gp
 
-def run():
+
+# @ray.remote
+def runChecks(logicPath, gp, file):
+    if "Experimental" in file.parts:
+        return 0, 0
+
+    keep, total = 0, 0
+    solutions = readYAML(file)[5]  # Solutions are the 5th index
+    for s in solutions:
+        total += 1
+        keep += validateMatrixInstruction(s, file.relative_to(logicPath), gp)
+    print(f">> {file.relative_to(logicPath)}")
+    return keep, total
+
+
+def main():
 
     args = parseArguments()
     cxxCompiler = validateToolchain(args.CxxCompiler)
@@ -32,34 +48,26 @@ def run():
     logicPath = Path(args.LogicPath)
     pattern = "**/*.yaml"
     files = logicPath.glob(pattern)
-    print(f"Checking logic files with glob {args.LogicPath}/{pattern}")
+    print(f"Checking logic files with glob {args.LogicPath}{pattern}")
 
     if not any([args.CheckMatrixInstruction]):
         print("No checks specified. Exiting.")
         exit(0)
 
-    context = ray.init(dashboard_host="0.0.0.0", num_cpus=32)
-    print(f"Started ray with {context}")
+    # context = ray.init(dashboard_host="0.0.0.0")
+    # print(f"Started ray with {context}")
 
-    keep = 0
-    total = 0
-    for file in files:
-        if "Experimental" in file.parts:
-            continue
-        print(f"-> {file.relative_to(logicPath)}")
-        data = readYAML(file)
-        solutions = data[5]  # Solutions are the 5th index
-        for s in solutions:
-            if args.CheckMatrixInstruction:
-                total += 1
-                try:
-                    future = validateMatrixInstruction.remote(s, file.relative_to(logicPath), gp)
-                    ray.get(future)
-                except AssertionError as e:
-                    print(f"X> Rejecting {file.relative_to(logicPath)}: {e}")
-                    continue
-                keep += 1
-    ray.shutdown()
+    fn = functools.partial(runChecks, logicPath, gp)
+    results = ParallelMap2(fn, files, multiArg=False, procs=args.Jobs)
+    # futures = []
+    # for file in files:
+    # futures.append(runChecks.remote(logicPath, file, gp))
+
+    # results = ray.get(futures)
+    # ray.shutdown()
+
+    keep = sum([x[0] for x in results])
+    total = sum([x[1] for x in results])
 
     rejects = total - keep
     print(f"Total  {total} solutions")
@@ -68,6 +76,3 @@ def run():
 
     if rejects > 0:
         exit(1)
-
-
-

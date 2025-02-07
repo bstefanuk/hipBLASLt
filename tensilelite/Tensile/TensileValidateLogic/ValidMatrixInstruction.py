@@ -1,12 +1,10 @@
 import math
-import ray
 from pathlib import Path
-from warnings import warn
-
-from Tensile.Common import IsaVersion
+from inspect import currentframe, getframeinfo
 
 MI_KEY: str = "MatrixInstruction"
 MI_ENABLED_KEY: str = "EnableMatrixInstruction"
+
 
 validMFMA = {}
 validMFMA["H"] = [[32, 32, 4, 2], [32, 32, 8, 1], [16, 16, 4, 4], [16, 16, 16, 1], [4, 4, 4, 16]]
@@ -106,34 +104,86 @@ validMatrixInstructions = (
 )
 
 
-@ray.remote
+def elineno():
+    """
+    Return the file name and line number of the caller.
+    """
+    frame = getframeinfo(currentframe().f_back)
+    return f"{Path(frame.filename).name}:{frame.lineno}"
+
+
 def validateMatrixInstruction(solution: dict, filepath: Path, params: dict):
-    assert MI_KEY in solution
-    assert MI_ENABLED_KEY in solution
-    assert not (solution[MI_KEY] == [] and solution[MI_ENABLED_KEY] == True)
+    """
+    Wrapper function to validate the matrix instruction for the provided solution.
+    """
+    try:
+        _validateMatrixInstruction(solution, params)
+        return True
+    except AssertionError as e:
+        print(f"Validation failed: {filepath} (index {solution['SolutionIndex']})")
+        print(f"Error: file: {e}")
+        return False
+
+
+def _validateMatrixInstruction(solution: dict, params: dict):
+    """
+    Validates the matrix instruction configured in the given solution.
+
+    The function performs the following checks:
+    - Ensures that the solution contains the required keys for matrix instruction support.
+    - Ensures that the matrix instruction is not empty when it is enabled.
+    - Validates that the matrix instruction is in the list of valid matrix instructions.
+    - If the matrix instruction has 9 elements, it performs detailed validation checks:
+        - Validates the work group dimensions.
+        - Checks if the matrix instruction is supported by the assembler capabilities (MFMA or WMMA).
+        - Validates the input per thread for sparse and non-sparse configurations.
+        - Validates the matrix instruction block, wave group, and wave tile dimensions.
+    - If the matrix instruction has 4 elements, it ensures that matrix instructions are enabled.
+    - If the matrix instruction is empty, it ensures that matrix instructions are disabled.
+
+    Args:
+        solution: A dictionary containing the solution configuration.
+        params: A dictionary containing the global parameters.
+
+    Raises:
+        AssertionError: If any of the validation checks fail.
+
+    """
+    assert MI_KEY in solution, elineno()
+    assert MI_ENABLED_KEY in solution, elineno()
+    assert not (solution[MI_KEY] == [] and solution[MI_ENABLED_KEY] == True), elineno()
 
     isa = tuple(solution["ISA"])
     miFull = solution[MI_KEY]
     miEnabled = solution[MI_ENABLED_KEY]
 
-    assert miFull in validMatrixInstructions
+    assert miFull in validMatrixInstructions, elineno()
 
     if len(solution[MI_KEY]) == 9:
+        wfsize = solution["WavefrontSize"]
         mi = [miFull[0], miFull[1], miFull[2], miFull[3]]
         waves = miFull[7] * miFull[8]
         miwg0 = miFull[4] * miFull[0] * miFull[7]  # Matrix instruction work group 0
         miwg1 = waves * wfsize // miwg0
 
-        wfsize = solution["WavefrontSize"]
         isSparse = solution["ProblemType"]["Sparse"]
         miDataType = (
             solution["ProblemType"]["DataType"]
             if (not solution["EnableF32XdlMathOp"])
             else solution["ProblemType"]["F32XdlMathOp"]
         )
+        miBlock = solution["MIBlock"]
+        miWaveGroup = solution["MIWaveGroup"]
+        miWaveTile = solution["MIWaveTile"]
+        miInputPerThread = solution["MIInputPerThread"]
+        miInputPerThreadA = solution["MIInputPerThreadA"]
+        miInputPerThreadB = solution["MIInputPerThreadB"]
+        miInutPerThreadMeta = solution["MIInputPerThreadMetadata"]
 
+        # Check work group
         assert solution["WorkGroup"] == [miwg0, miwg1]
 
+        # Check datatype
         if not isSparse:
             if params["AsmCaps"][isa]["HasMFMA"]:
                 if not (miDataType.toChar() in validMFMA and mi in validMFMA[miDataType.toChar()]):
@@ -143,59 +193,37 @@ def validateMatrixInstruction(solution: dict, filepath: Path, params: dict):
         else:
             assert miDataType.toChar() in validSMFMA and mi in validSMFMA[miDataType.toChar()]
 
-        if (not params["AsmCaps"][isa]["HasMFMA"]) and params["AsmCaps"][isa][
-            "HasWMMA"
-        ]:
+        if (not params["AsmCaps"][isa]["HasMFMA"]) and params["AsmCaps"][isa]["HasWMMA"]:
             if isa[0] == 10 or isa[0] == 11:
-                assert solution["MIInputPerThread"] == solution["MatrixInstruction"][2]
+                assert miInputPerThread == mi[2]
 
         assert solution["MFMA_BF16_1K"] == False
 
         # Check MIBlock
-        assert solution["MIBlock"][0] == mi[0]
-        assert solution["MIBlock"][1] == mi[1]
-        assert solution["MIBlock"][2] == mi[2]
-        assert solution["MIBlock"][3] == mi[3]
-        assert solution["MIBlock"][4] == min(miwg0 // mi[0], mi[3])
-        assert solution["MIBlock"][5] == mi[3] // solution["MIBlock"][4]
+        assert miBlock[0] == mi[0]
+        assert miBlock[1] == mi[1]
+        assert miBlock[2] == mi[2]
+        assert miBlock[3] == mi[3]
+        assert miBlock[4] == min(miwg0 // mi[0], mi[3])
+        assert miBlock[5] == mi[3] // miBlock[4]
 
         # Check MIWaveGroup
-        assert solution["MIWaveGroup"][0] == min((miwg0 // mi[0]) // solution["MIBlock"][4], waves)
-        assert solution["MIWaveGroup"][1] == waves // solution["MIWaveGroup"][0]
+        assert miWaveGroup[0] == min((miwg0 // mi[0]) // miBlock[4], waves)
+        assert miWaveGroup[1] == waves // miWaveGroup[0]
 
         # Check MIWaveTile
-        assert solution["MIWaveTile"][0] == mi[5]
-        assert solution["MIWaveTile"][1] == mi[6]
+        assert miWaveTile[0] == mi[5]
+        assert miWaveTile[1] == mi[6]
 
         # Check MIInputPerThread
-        assert solution["MIInputPerThread"] == (
-            solution["MatrixInstruction"][0]
-            * solution["MatrixInstruction"][2]
-            * solution["MatrixInstruction"][3]
-            // solution["WavefrontSize"]
-        )
+        assert miInputPerThread == mi[0] * mi[2] * mi[3] // wfsize
 
-        sparseA = (
-            False
-            if not solution["ProblemType"]["Sparse"]
-            else False if solution["ProblemType"]["Sparse"] == 2 else True
-        )
-        sparseB = (
-            False
-            if not solution["ProblemType"]["Sparse"]
-            else True if solution["ProblemType"]["Sparse"] == 2 else False
-        )
-        assert solution["MIInputPerThreadA"] == (
-            solution["MIInputPerThread"] if not sparseA else solution["MIInputPerThread"] // 2
-        )
-        assert solution["MIInputPerThreadB"] == (
-            solution["MIInputPerThread"] if not sparseB else solution["MIInputPerThread"] // 2
-        )
-        assert solution["MIInputPerThreadMetadata"] == (
-            solution["MIInputPerThread"]
-            if not solution["ProblemType"]["Sparse"]
-            else solution["MIInputPerThread"] // 8
-        )
+        # TODO: sparsity in hipBLASLt appears to be unused or always zero
+        sparseA = not isSparse if isSparse != 2 else False
+        sparseB = isSparse == 2 if isSparse else False
+        assert miInputPerThreadA == miInputPerThread if not sparseA else miInputPerThread // 2
+        assert miInputPerThreadB == miInputPerThread if not sparseB else miInputPerThread // 2
+        assert miInutPerThreadMeta == miInputPerThread if not isSparse else miInputPerThread // 8
 
         assert miEnabled == True
     elif miFull != [] and len(miFull) == 4:

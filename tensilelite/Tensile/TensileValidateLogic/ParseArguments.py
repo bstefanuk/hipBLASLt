@@ -47,6 +47,14 @@ def parseArguments() -> Dict[str, Any]:
         help="Checks that matrix instructions are valid for all target ISAs.",
     )
     argParser.add_argument(
+        "--jobs",
+        "-j",
+        dest="Jobs",
+        action="store",
+        default=48,
+        help="Number of worker processes to use during validation checks.",
+    )
+    argParser.add_argument(
         "--cxx-compiler",
         dest="CxxCompiler",
         action="store",
