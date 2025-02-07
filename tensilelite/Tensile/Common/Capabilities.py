@@ -1,12 +1,17 @@
 import subprocess
-
 from functools import lru_cache
 from typing import Tuple
 
-from .Architectures import getGfxName
+from .Architectures import isaToGfx
 
-def _tryAssembler(isaVersion: Tuple[int, int, int], assemblerPath: str, asmString: str, \
-                debug: bool=False, *options) -> bool:
+
+def _tryAssembler(
+    isaVersion: Tuple[int, int, int],
+    assemblerPath: str,
+    asmString: str,
+    debug: bool = False,
+    *options
+) -> bool:
     """
     Try to assemble the asmString for the specified target processor
     Success is defined as assembler returning no error code or stderr/stdout
@@ -14,20 +19,27 @@ def _tryAssembler(isaVersion: Tuple[int, int, int], assemblerPath: str, asmStrin
     options = list(options)
 
     if isaVersion[0] >= 10:
-        options += ['-mwavefrontsize64']
+        options += ["-mwavefrontsize64"]
 
-    args = [str(assemblerPath), '-x', 'assembler',
-            '-target', 'amdgcn-amdhsa',
-            '-mcpu='+ getGfxName(isaVersion),
-            *options,
-            '-']
+    args = [
+        str(assemblerPath),
+        "-x",
+        "assembler",
+        "-target",
+        "amdgcn-amdhsa",
+        "-mcpu=" + isaToGfx(isaVersion),
+        *options,
+        "-",
+    ]
 
-    result = subprocess.run(args, input=asmString.encode(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    result = subprocess.run(
+        args, input=asmString.encode(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    )
     output = result.stdout.decode()
 
     if debug:
         print("isaVersion: ", isaVersion)
-        print("asm_cmd:", ' '.join(args))
+        print("asm_cmd:", " ".join(args))
         print("asmString: ", asmString)
         print("output: ", output)
         print("return code: ", result.returncode)
@@ -36,14 +48,17 @@ def _tryAssembler(isaVersion: Tuple[int, int, int], assemblerPath: str, asmStrin
         return False
     return True
 
+
 ########################################
 # Get Caps
 ########################################
 
+
 @lru_cache()
 def initAsmCaps(isaVersion, assemblerPath, isDebug) -> dict:
-    """ Determine assembler capabilities by testing short instructions sequences """
+    """Determine assembler capabilities by testing short instructions sequences"""
     rv = {}
+    # fmt: off
     rv["SupportedISA"]      = _tryAssembler(isaVersion, assemblerPath, "", isDebug)
     rv["HasExplicitCO"]     = _tryAssembler(isaVersion, assemblerPath, "v_add_co_u32 v0,vcc,v0,1", isDebug)
     rv["HasExplicitNC"]     = _tryAssembler(isaVersion, assemblerPath, "v_add_nc_u32 v0,v0,1", isDebug)
@@ -113,6 +128,7 @@ def initAsmCaps(isaVersion, assemblerPath, isDebug) -> dict:
     rv["HasNTModifier"]    = _tryAssembler(isaVersion, assemblerPath, "buffer_load_dwordx4 v[10:13], v[0], s[0:3], 0, offen offset:0, nt", isDebug)
 
     rv["HasNewBarrier"]    = _tryAssembler(isaVersion, assemblerPath, "s_barrier_wait -1", isDebug)
+    # fmt: on
 
     if _tryAssembler(isaVersion, assemblerPath, "s_waitcnt vmcnt(63)", isDebug):
         rv["MaxVmcnt"] = 63
@@ -128,9 +144,11 @@ def initAsmCaps(isaVersion, assemblerPath, isDebug) -> dict:
 
     return rv
 
+
 @lru_cache()
 def initArchCaps(isaVersion) -> dict:
     rv = {}
+    # fmt: off
     rv["HasEccHalf"]         = (isaVersion in [(9,0,6), (9,0,8), (9,0,10), (9,4,0), (9,4,1), (9,4,2)])
     rv["Waitcnt0Disabled"]   = (isaVersion in [(9,0,8), (9,0,10), (9,4,0), (9,4,1), (9,4,2)])
     rv["SeparateVscnt"]      = isaVersion[0] in (10, 11)
@@ -150,7 +168,9 @@ def initArchCaps(isaVersion) -> dict:
     rv["NoSDWA"]             = isaVersion[0] == (12)
     rv["VOP3ByteSel"]      = isaVersion[0] == (12)
     rv["HasFP8_OCP"]         = isaVersion[0] == (12)
+    # fmt: on
     return rv
+
 
 def initRegisterCaps(isaVersion, archCaps) -> dict:
     rv = {}
@@ -183,6 +203,7 @@ def initRegisterCaps(isaVersion, archCaps) -> dict:
         assert 0, "No valid VGPR value for this platform"
 
     return rv
+
 
 def initAsmBugs(asmCaps) -> dict:
     rv = {}
