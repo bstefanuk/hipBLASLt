@@ -141,10 +141,6 @@ def _validateMatrixInstruction(solution: dict, params: dict):
     - If the matrix instruction has 4 elements, it ensures that matrix instructions are enabled.
     - If the matrix instruction is empty, it ensures that matrix instructions are disabled.
 
-    Args:
-        solution: A dictionary containing the solution configuration.
-        params: A dictionary containing the global parameters.
-
     Raises:
         AssertionError: If any of the validation checks fail.
 

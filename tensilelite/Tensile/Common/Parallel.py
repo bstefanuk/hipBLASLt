@@ -196,8 +196,8 @@ def ParallelMapReturnAsGenerator(function, objects, message="", enable=True, mul
 
 
 def ParallelMap2(function, objects, message="", enable=True, multiArg=True, return_as="list", procs=None):
-  """
-  Generally equivalent to list(map(function, objects)), possibly executing in parallel.
+    """
+    Generally equivalent to list(map(function, objects)), possibly executing in parallel.
 
       message: A message describing the operation to be performed.
       enable: May be set to false to disable parallelism.
@@ -207,8 +207,8 @@ def ParallelMap2(function, objects, message="", enable=True, multiArg=True, retu
     if return_as in ("generator", "generator_unordered") and not joblibParallelSupportsGenerator():
         return ParallelMapReturnAsGenerator(function, objects, message, enable, multiArg)
 
-  from .GlobalParameters import globalParameters
-  threadCount = procs if procs else CPUThreadCount(enable)
+    from .GlobalParameters import globalParameters
+    threadCount = procs if procs else CPUThreadCount(enable)
 
     threadCount = CPUThreadCount(enable)
 
