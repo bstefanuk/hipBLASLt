@@ -295,19 +295,6 @@ globalParameters["SupportedISA"] = [
 ]  # assembly kernels writer supports these architectures
 
 globalParameters["NewClient"] = 2  # Old client deprecated: NewClient must be set to 2.
-globalParameters["ClientBuildPath"] = "0_Build"  # subdirectory for host code build directory
-globalParameters["BenchmarkProblemsPath"] = (
-    "1_BenchmarkProblems"  # subdirectory for benchmarking phases
-)
-globalParameters["BenchmarkDataPath"] = (
-    "2_BenchmarkData"  # subdirectory for storing final benchmarking data
-)
-globalParameters["LibraryLogicPath"] = (
-    "3_LibraryLogic"  # subdirectory for library logic produced by analysis
-)
-globalParameters["LibraryClientPath"] = (
-    "4_LibraryClient"  # subdirectory for building example library client
-)
 globalParameters["ClientExecutionLockPath"] = (
     None  # Path for a file lock to ensure only one client is executed at once.  filelock module is required if this is enabled.
 )

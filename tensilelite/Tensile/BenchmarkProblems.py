@@ -42,7 +42,8 @@ from .CustomKernels import getCustomKernelConfig
 from .Toolchain.Assembly import AssemblyToolchain
 from .Toolchain.Source import SourceToolchain
 from .Common import globalParameters, HR, print1, print2, \
-        printExit, printWarning, ensurePath, startTime, tqdm, state
+        printExit, printWarning, ensurePath, startTime, tqdm, state, \
+        BENCHMARK_PROBLEMS_DIR, BENCHMARK_DATA_DIR
 
 
 def generateForkedSolutions(problemType, constantParams, forkPermutations, cxxCompiler):
@@ -386,7 +387,7 @@ def main(config, useCache, asmToolchain: AssemblyToolchain, srcToolchain: Source
         print(f'No config specified in {globalParameters["ConfigPath"]}, built client only')
         return
 
-    benchmarkDataPath = ensurePath(outputPath / globalParameters["BenchmarkDataPath"])
+    benchmarkDataPath = ensurePath(outputPath / BENCHMARK_DATA_DIR)
 
     totalTestFails = 0
     for benchmarkProblemTypeConfig in config:
@@ -416,7 +417,7 @@ def main(config, useCache, asmToolchain: AssemblyToolchain, srcToolchain: Source
                     or not os.path.exists(newResultsFileName):
 
                 # benchmark problem size group
-                benchmarkProblemsPath = ensurePath(outputPath / globalParameters["BenchmarkProblemsPath"])
+                benchmarkProblemsPath = ensurePath(outputPath / BENCHMARK_PROBLEMS_DIR)
                 (resultsFileBaseFinal, benchmarkErrors) = \
                         benchmarkProblemType(problemTypeConfig, sizeGroupConfig, idx, useCache, asmToolchain, srcToolchain, cCompiler, buildTmpPath, benchmarkProblemsPath)
                 totalTestFails += benchmarkErrors

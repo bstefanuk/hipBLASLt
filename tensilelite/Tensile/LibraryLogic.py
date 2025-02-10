@@ -24,7 +24,8 @@
 
 from pathlib import Path
 from .Common import print1, print2, HR, printExit, defaultAnalysisParameters, globalParameters, \
-  assignParameterWithDefault, startTime, ProgressBar, printWarning, ensurePath
+  assignParameterWithDefault, startTime, ProgressBar, printWarning, ensurePath, \
+  LIBRARY_LOGIC_DIR, BENCHMARK_DATA_DIR
 from .SolutionStructs import Solution
 from . import LibraryIO
 from . import SolutionSelectionLibrary
@@ -1567,6 +1568,6 @@ def read_max_freq():
 ################################################################################
 ################################################################################
 def main(config, cxxCompiler: str, outputPath: Path):
-  benchmarkDataPath = outputPath / globalParameters["BenchmarkDataPath"]
-  libraryLogicPath = outputPath / globalParameters["LibraryLogicPath"]
+  benchmarkDataPath = outputPath / BENCHMARK_DATA_DIR
+  libraryLogicPath = outputPath / LIBRARY_LOGIC_DIR
   generateLogic(config, benchmarkDataPath, libraryLogicPath, cxxCompiler)

@@ -31,7 +31,7 @@ import os
 import sys
 import argparse
 from .Common import globalParameters, print1, printExit, printWarning, ensurePath, \
-    assignGlobalParameters, restoreDefaultGlobalParameters, HR, __version__
+    assignGlobalParameters, restoreDefaultGlobalParameters, HR, __version__, LIBRARY_LOGIC_DIR
 from .Toolchain.Assembly import AssemblyToolchain
 from .Toolchain.Source import SourceToolchain
 from .Toolchain.Validators import validateToolchain, ToolchainDefaults
@@ -88,7 +88,7 @@ def executeStepsInConfig(
     ##############################################################################
     # Library Logic
     ##############################################################################
-    libraryLogicDataPath = os.path.join(outputPath, globalParameters["LibraryLogicPath"])
+    libraryLogicDataPath = os.path.join(outputPath, LIBRARY_LOGIC_DIR)
     if "LibraryLogic" in config:
         if os.path.exists(libraryLogicDataPath):
             libraryLogicFiles = os.listdir(libraryLogicDataPath)
@@ -158,7 +158,6 @@ def addCommonArguments(argParser):
         action="store", default="yaml", help="select which logic format to use")
     argParser.add_argument("--library-format", dest="LibraryFormat", choices=["yaml", "msgpack"], \
         action="store", default="yaml", help="select which library format to use")
-    argParser.add_argument("--client-build-path", default=None)
     argParser.add_argument("--client-lock", default=None)
     argParser.add_argument("--prebuilt-client", default=None)
 
@@ -192,8 +191,6 @@ def argUpdatedGlobalParameters(args):
         rv["CMakeBuildType"] = "Debug"
     if args.shortNames:
         rv["ShortNames"] = True
-    if args.client_build_path:
-        rv["ClientBuildPath"] = args.client_build_path
     if args.client_lock:
         rv["ClientExecutionLockPath"] = args.client_lock
     if args.prebuilt_client:
