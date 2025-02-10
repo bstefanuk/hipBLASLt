@@ -25,7 +25,6 @@ def getParams(cxxCompiler):
     return gp
 
 
-# @ray.remote
 def runChecks(logicPath, gp, file):
     if "Experimental" in file.parts:
         return 0, 0
@@ -40,7 +39,6 @@ def runChecks(logicPath, gp, file):
 
 
 def main():
-
     args = parseArguments()
     cxxCompiler = validateToolchain(args.CxxCompiler)
     gp = getParams(cxxCompiler)
@@ -54,17 +52,8 @@ def main():
         print("No checks specified. Exiting.")
         exit(0)
 
-    # context = ray.init(dashboard_host="0.0.0.0")
-    # print(f"Started ray with {context}")
-
     fn = functools.partial(runChecks, logicPath, gp)
     results = ParallelMap2(fn, files, multiArg=False, procs=args.Jobs)
-    # futures = []
-    # for file in files:
-    # futures.append(runChecks.remote(logicPath, file, gp))
-
-    # results = ray.get(futures)
-    # ray.shutdown()
 
     keep = sum([x[0] for x in results])
     total = sum([x[1] for x in results])

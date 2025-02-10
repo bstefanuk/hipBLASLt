@@ -114,19 +114,6 @@ def elineno():
 
 def validateMatrixInstruction(solution: dict, filepath: Path, params: dict):
     """
-    Wrapper function to validate the matrix instruction for the provided solution.
-    """
-    try:
-        _validateMatrixInstruction(solution, params)
-        return True
-    except AssertionError as e:
-        print(f"Validation failed: {filepath} (index {solution['SolutionIndex']})")
-        print(f"Error: file: {e}")
-        return False
-
-
-def _validateMatrixInstruction(solution: dict, params: dict):
-    """
     Validates the matrix instruction configured in the given solution.
 
     The function performs the following checks:
@@ -141,9 +128,27 @@ def _validateMatrixInstruction(solution: dict, params: dict):
     - If the matrix instruction has 4 elements, it ensures that matrix instructions are enabled.
     - If the matrix instruction is empty, it ensures that matrix instructions are disabled.
 
+    Args:
+        solution: The solution to validate.
+        filepath: The path to the file containing the solution.
+        params: The global parameters for the solution.
+
     Raises:
         AssertionError: If any of the validation checks fail.
+    """
+    try:
+        _validateMatrixInstruction(solution, params)
+        return True
+    except AssertionError as e:
+        print(f"Validation failed: {filepath} (index {solution['SolutionIndex']})")
+        print(f"Error: file: {e}")
+        return False
 
+
+def _validateMatrixInstruction(solution: dict, params: dict):
+    """
+    Function to validate the matrix instruction for the provided solution.
+    See exported function for more details.
     """
     assert MI_KEY in solution, elineno()
     assert MI_ENABLED_KEY in solution, elineno()
@@ -177,52 +182,52 @@ def _validateMatrixInstruction(solution: dict, params: dict):
         miInutPerThreadMeta = solution["MIInputPerThreadMetadata"]
 
         # Check work group
-        assert solution["WorkGroup"] == [miwg0, miwg1]
+        assert solution["WorkGroup"] == [miwg0, miwg1], elineno()
 
         # Check datatype
         if not isSparse:
             if params["AsmCaps"][isa]["HasMFMA"]:
                 if not (miDataType.toChar() in validMFMA and mi in validMFMA[miDataType.toChar()]):
-                    assert miDataType.isBFloat16() and mi in validMFMA["B1k"]
+                    assert miDataType.isBFloat16() and mi in validMFMA["B1k"], elineno()
             elif params["AsmCaps"][isa]["HasWMMA"]:
-                assert mi in validWMMA
+                assert mi in validWMMA, elineno()
         else:
-            assert miDataType.toChar() in validSMFMA and mi in validSMFMA[miDataType.toChar()]
+            assert miDataType.toChar() in validSMFMA and mi in validSMFMA[miDataType.toChar()], elineno()
 
         if (not params["AsmCaps"][isa]["HasMFMA"]) and params["AsmCaps"][isa]["HasWMMA"]:
             if isa[0] == 10 or isa[0] == 11:
-                assert miInputPerThread == mi[2]
+                assert miInputPerThread == mi[2], elineno()
 
-        assert solution["MFMA_BF16_1K"] == False
+        assert solution["MFMA_BF16_1K"] == False, elineno()
 
         # Check MIBlock
-        assert miBlock[0] == mi[0]
-        assert miBlock[1] == mi[1]
-        assert miBlock[2] == mi[2]
-        assert miBlock[3] == mi[3]
-        assert miBlock[4] == min(miwg0 // mi[0], mi[3])
-        assert miBlock[5] == mi[3] // miBlock[4]
+        assert miBlock[0] == mi[0], elineno()
+        assert miBlock[1] == mi[1], elineno()
+        assert miBlock[2] == mi[2], elineno()
+        assert miBlock[3] == mi[3], elineno()
+        assert miBlock[4] == min(miwg0 // mi[0], mi[3]), elineno()
+        assert miBlock[5] == mi[3] // miBlock[4], elineno()
 
         # Check MIWaveGroup
-        assert miWaveGroup[0] == min((miwg0 // mi[0]) // miBlock[4], waves)
-        assert miWaveGroup[1] == waves // miWaveGroup[0]
+        assert miWaveGroup[0] == min((miwg0 // mi[0]) // miBlock[4], waves), elineno()
+        assert miWaveGroup[1] == waves // miWaveGroup[0], elineno()
 
         # Check MIWaveTile
-        assert miWaveTile[0] == mi[5]
-        assert miWaveTile[1] == mi[6]
+        assert miWaveTile[0] == mi[5], elineno()
+        assert miWaveTile[1] == mi[6], elineno()
 
         # Check MIInputPerThread
-        assert miInputPerThread == mi[0] * mi[2] * mi[3] // wfsize
+        assert miInputPerThread == mi[0] * mi[2] * mi[3] // wfsize, elineno()
 
         # TODO: sparsity in hipBLASLt appears to be unused or always zero
         sparseA = not isSparse if isSparse != 2 else False
         sparseB = isSparse == 2 if isSparse else False
-        assert miInputPerThreadA == miInputPerThread if not sparseA else miInputPerThread // 2
-        assert miInputPerThreadB == miInputPerThread if not sparseB else miInputPerThread // 2
-        assert miInutPerThreadMeta == miInputPerThread if not isSparse else miInputPerThread // 8
+        assert miInputPerThreadA == miInputPerThread if not sparseA else miInputPerThread // 2, elineno()
+        assert miInputPerThreadB == miInputPerThread if not sparseB else miInputPerThread // 2, elineno()
+        assert miInutPerThreadMeta == miInputPerThread if not isSparse else miInputPerThread // 8, elineno()
 
-        assert miEnabled == True
+        assert miEnabled == True, elineno()
     elif miFull != [] and len(miFull) == 4:
-        assert miEnabled == True
+        assert miEnabled == True, elineno()
     else:
-        assert miEnabled == False
+        assert miEnabled == False, elineno()
