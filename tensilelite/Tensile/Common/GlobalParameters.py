@@ -354,7 +354,6 @@ globalParameters["RotatingMode"] = (
 # Mode 0 requires memcpy everytime when the problem changes to reset the data, but mode 1 doesn't.
 
 globalParameters["BuildIdKind"] = "sha1"
-globalParameters["ValidateLibrary"] = False
 globalParameters["AsmDebug"] = (
     False  # Set to True to keep debug information for compiled code objects
 )
