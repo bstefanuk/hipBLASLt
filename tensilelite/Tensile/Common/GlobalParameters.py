@@ -123,9 +123,6 @@ globalParameters["SolutionSelectionAlg"] = (
     1  # algorithm to determine which solutions to keep. 0=removeLeastImportantSolutions, 1=keepWinnerSolutions (faster)
 )
 globalParameters["GenerateSourcesAndExit"] = False  # Exit after kernel source generation.
-globalParameters["WavefrontWidth"] = (
-    64  # if False and library client already built, then building library client will be skipped when tensile is re-run
-)
 globalParameters["ExitOnFails"] = (
     1  # 1: Exit after benchmark run if failures detected.  2: Exit during benchmark run.
 )
