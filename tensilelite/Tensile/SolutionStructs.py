@@ -43,7 +43,7 @@ from .Common import assignParameterWithDefault, \
                     globalParameters, internalParameters, \
                     print2, printExit, printWarning, \
                     validMFMA, validSMFMA, validParameters, \
-                    validGEMMTypes, HPATypes, roundUp, validWMMA, INDEX_CHARS, validMatrixInstructions
+                    validGEMMTypes, HPATypes, roundUp, validWMMA, INDEX_CHARS
 
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -1726,8 +1726,6 @@ class Solution(collections.abc.Mapping):
   @staticmethod
   def MatrixInstructionToMIParameters(state):
     isa = tuple(state["ISA"])
-    if state["MatrixInstruction"] not in validMatrixInstructions:
-      reject(state, "Instruction isn't in the list")
     if len(state["MatrixInstruction"]) == 9:
       mi                          = state["MatrixInstruction"]
       state["MatrixInstruction"]  = [state["MatrixInstruction"][0],state["MatrixInstruction"][1],state["MatrixInstruction"][2],state["MatrixInstruction"][3]]
