@@ -260,9 +260,6 @@ globalParameters["ShortNames"] = (
     False  # on windows kernel names can get too long; =True will convert solution/kernel names to serial ids
 )
 
-globalParameters["MaxFileName"] = (
-    64  # If a file name would be longer than this, shorten it with a hash.
-)
 globalParameters["SupportedISA"] = [
     (8, 0, 3),
     (9, 0, 0),
