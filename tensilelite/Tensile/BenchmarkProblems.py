@@ -400,7 +400,6 @@ def main(config, useCache, asmToolchain: AssemblyToolchain, srcToolchain: Source
         for idx, sizeGroupConfig in enumerate(problemSizeGroupConfigs):
             print2("ProblemTypeConfig: {}".format(problemTypeConfig))
             problemTypeObj = ProblemType(problemTypeConfig)
-            globalParameters["EnableHalf"] = problemTypeObj["DataType"].isHalf()
 
             # using a suffix to check the csv version (for later addFromCSV())
             csvSuffix = "_CSVWinner" if globalParameters["CSVExportWinner"] else ""

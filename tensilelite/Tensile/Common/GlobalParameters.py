@@ -314,10 +314,6 @@ else:
 globalParameters["CodeObjectVersion"] = "4"
 globalParameters["Architecture"] = "all"
 
-# might be deprecated
-globalParameters["EnableHalf"] = False
-globalParameters["ClientArgs"] = ""
-
 # perf model
 globalParameters["PerfModelL2ReadHits"] = 0.0
 globalParameters["PerfModelL2WriteHits"] = 0.15

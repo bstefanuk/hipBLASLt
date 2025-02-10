@@ -96,7 +96,6 @@ def main(config, cxxCompiler: str, cCompiler: str, outputPath: Path):
   print1("LogicFiles: %s" % logicFiles)
   functions = []
   functionNames = []
-  enableHalf = False
 
   createLibraryScript = getBuildClientLibraryScript(clientLibraryPath, libraryLogicPath, cxxCompiler)
   subprocess.run(shlex.split(createLibraryScript), cwd=clientLibraryPath)
@@ -107,8 +106,6 @@ def main(config, cxxCompiler: str, cCompiler: str, outputPath: Path):
   for logicFileName in logicFiles:
     (scheduleName, _, problemType, _, exactLogic, newLibrary) \
         = LibraryIO.parseLibraryLogicFile(logicFileName, cxxCompiler)
-    if problemType["DataType"].isHalf():
-        enableHalf = True
     functions.append((scheduleName, problemType))
     functionNames.append("tensile_%s" % (problemType))
     problemSizes = ProblemSizesMock(exactLogic) if exactLogic else ProblemSizesMockDummy()
@@ -155,7 +152,6 @@ def main(config, cxxCompiler: str, cCompiler: str, outputPath: Path):
                                   codeObjectFiles=coList,
                                   tileAwareSelection=False,
                                   libraryFile=yamlList[0]))
-  globalParameters["EnableHalf"] = enableHalf
 
   forBenchmark = False
   problemSizes = None
@@ -287,7 +283,7 @@ def writeRunScript(path, forBenchmark, enableTileSelection, cxxCompiler: str, cC
 
     clientExe = ClientExecutable.getClientExecutable(cxxCompiler, cCompiler, buildDir)
     for configFile in configPaths:
-      runScriptFile.write("{} --config-file {} {}\n".format(clientExe, configFile, globalParameters["ClientArgs"]))
+      runScriptFile.write("{} --config-file {}\n".format(clientExe, configFile))
     runScriptFile.write("ERR2=$?\n\n")
 
     runScriptFile.write("""
@@ -310,7 +306,7 @@ fi
         runScriptFile.write("%s -d 0 --setfan 50\n" % globalParameters["ROCmSMIPath"])
   else:
     for configFile in configPaths:
-      runScriptFile.write("{} --config-file {} {} --best-solution 1\n".format(ClientExecutable.getClientExecutable(cxxCompiler, cCompiler, buildDir), configFile, globalParameters["ClientArgs"]))
+      runScriptFile.write("{} --config-file {} --best-solution 1\n".format(ClientExecutable.getClientExecutable(cxxCompiler, cCompiler, buildDir), configFile))
   if os.name != "nt":
     runScriptFile.write("exit $ERR\n")
   runScriptFile.close()
