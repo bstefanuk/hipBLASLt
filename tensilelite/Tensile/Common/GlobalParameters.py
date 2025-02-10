@@ -60,7 +60,6 @@ globalParameters["PreciseKernelTime"] = (
 globalParameters["CodeFromFiles"] = (
     True  # if False byte arrays will be generated during Benchmarking phase as before
 )
-globalParameters["SortProblems"] = False  # sort problems by size; else use order in YAML file
 globalParameters["PinClocks"] = False  # T=pin gpu clocks and fan, F=don't
 globalParameters["HardwareMonitor"] = (
     True  # False: disable benchmarking client monitoring clocks using rocm-smi.
