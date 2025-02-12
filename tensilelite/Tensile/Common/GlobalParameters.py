@@ -57,9 +57,9 @@ globalParameters["PreciseKernelTime"] = (
     True  # T=On hip, use the timestamps for kernel start and stop rather than separate events.  Can provide more accurate kernel timing.  For GlobalSplitU kernels, recommend disabling this to provide consistent
 )
 # timing between GSU / non-GSU kernels
-globalParameters["CodeFromFiles"] = (
-    True  # if False byte arrays will be generated during Benchmarking phase as before
-)
+#globalParameters["CodeFromFiles"] = (
+#    True  # if False byte arrays will be generated during Benchmarking phase as before
+#)
 globalParameters["PinClocks"] = False  # T=pin gpu clocks and fan, F=don't
 globalParameters["HardwareMonitor"] = (
     True  # False: disable benchmarking client monitoring clocks using rocm-smi.
@@ -130,15 +130,7 @@ globalParameters["NumWarmups"] = 0
 # even if error occurs in kernel generation (ie due to resource overflow),
 # generate the kernel source anyway.  Tensile will also attempt to run
 # the kernel.  Useful to examine and debug overflow errors.
-globalParameters["ForceGenerateKernel"] = 0
-
-########################################
-# optimization knob controls
-########################################
-
-globalParameters["UnrollLoopEfficiencyEnable"] = (
-    False  # if True split(S) MAC&LDS in each unroll iteration into n smaller groups..
-)
+# globalParameters["ForceGenerateKernel"] = 0
 
 ########################################
 # less common
@@ -146,9 +138,9 @@ globalParameters["UnrollLoopEfficiencyEnable"] = (
 globalParameters["CMakeBuildType"] = (
     "Release"  # whether benchmark clients and library client should be release or debug
 )
-globalParameters["PrintSolutionRejectionReason"] = (
-    False  # when a solution is marked as invalid, print why
-)
+#globalParameters["PrintSolutionRejectionReason"] = (
+#    False  # when a solution is marked as invalid, print why
+#)
 globalParameters["LogicFormat"] = "yaml"  # set library backend (yaml, or json)
 globalParameters["LibraryFormat"] = "yaml"  # set library backend (yaml, or msgpack)
 
@@ -205,23 +197,12 @@ globalParameters["PruneSparseMode"] = (
 # build parameters
 globalParameters["CMakeCXXFlags"] = ""  # pass flags to cmake
 globalParameters["CMakeCFlags"] = ""  # pass flags to cmake
-globalParameters["DebugKernel"] = (
-    False  # assembly only, kernel gets buffer for debug "printing"; kernel writes data to memory, gets coppied to host and printed
-)
 globalParameters["AsanBuild"] = False  # build with asan
 globalParameters["SaveTemps"] = False  # Generate intermediate results of hip kernels
 globalParameters["KeepBuildTmp"] = False  # If true, do not remove artifacts in build_tmp
 
 # debug for assembly
-globalParameters["EnableAsserts"] = False  # Enable assembly debug assert
-globalParameters["EnableDebugA"] = False  # Enable / Disable CheckValue1A
-globalParameters["EnableDebugB"] = False  # Enable / Disable CheckValue1B
-globalParameters["EnableDebugC"] = False  # Enable / Disable CheckValueC
-globalParameters["ExpectedValueC"] = 16.0  # Expected C Value when CheckValueC, debug for Alpha*A*B
-globalParameters["ForceCExpectedValue"] = (
-    False  # Force C to "DebugExpectedValueC", debug for global write
-)
-globalParameters["SplitGSU"] = False  # Split GSU kernel into GSU1 and GSUM
+#globalParameters["SplitGSU"] = False  # Split GSU kernel into GSU1 and GSUM
 
 # Tensor printing controls:
 globalParameters["PrintTensorA"] = 0  # Print TensorA after initialization
@@ -256,9 +237,6 @@ globalParameters["Device"] = 0  # select hip device or opencl device within plat
 # shouldn't need to change
 globalParameters["DeviceLDS"] = 65536  # LDS bytes per CU, for computing occupancy
 globalParameters["MaxLDS"] = 65536  # max LDS a kernel should attempt to use
-globalParameters["ShortNames"] = (
-    False  # on windows kernel names can get too long; =True will convert solution/kernel names to serial ids
-)
 
 globalParameters["SupportedISA"] = [
     (8, 0, 3),
