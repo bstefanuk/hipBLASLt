@@ -24,6 +24,7 @@
 
 from argparse import ArgumentParser
 
+from Tensile.Common.Utilities import print1
 from Tensile.Toolchain.Validators import ToolchainDefaults
 
 
@@ -75,5 +76,10 @@ def parseArguments():
     )
 
     args = parser.parse_args()
+
+    # Setup checks and updates
+    if not any([args.check_all, args.check_only_custom_kernels, args.update_build_kernels]):
+        print1("No actions specified. Exiting.")
+        exit(1)
 
     return args

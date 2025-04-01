@@ -22,7 +22,7 @@
 #
 ################################################################################
 
-from copy import deepcopy
+import os
 import functools
 
 from pathlib import Path
@@ -68,7 +68,7 @@ _validateWorkGroup = _makeValidator(validateWorkGroup)
 _validateKernelName = _makeValidator(validateKernelName)
 
 
-def _readFile(file: Path, logicPath: Path, action: Action) -> Optional[List[dict]]:
+def _readFile(file: Path, action: Action) -> Optional[List[dict]]:
     """
     Get solutions from a logic file depending on the checks specified.
 
@@ -76,16 +76,9 @@ def _readFile(file: Path, logicPath: Path, action: Action) -> Optional[List[dict
         List of solutions if the file is a custom kernel is found and CheckOnlyCustomKernel is
         enabled, or if all checks are enabled. Otherwise, an empty list is returned.
     """
-    if action.CheckOnlyCustomKernels and hasCustomKernel(file):
-        print1(f">> Checking: {file.relative_to(logicPath)}")
-        return readYAML(file)
-    elif action.CheckAll:
-        print1(f">> Checking: {file.relative_to(logicPath)}")
-        return readYAML(file)
-    elif action.UpdateBuildKernels:
-        print1(f">> Updating: {file.relative_to(logicPath)}")
-        return readYAML(file)
-    return None
+    if action.CheckOnlyCustomKernels and not hasCustomKernel(file):
+        return None
+    return readYAML(file)
 
 
 def _runUpdates(logicPath: Path, action: Action, files: List[Path]):
@@ -98,17 +91,19 @@ def _runUpdates(logicPath: Path, action: Action, files: List[Path]):
         files: List of logic files to update.
     """
     kernelBuildSet = set()
-    for file in files:
+    for i, file in enumerate(files):
         if "Experimental" in file.parts:
             return 0
 
-        yaml = _readFile(file, logicPath, action)
+        yaml = _readFile(file, action)
         if yaml:
+            print1(f"[file: {i+1:02}/{len(files):02}, pid: {int(os.getpid() % 1e3)}] {file.relative_to(logicPath)}")
             for s in yaml[5]:
                 name = s["KernelNameMin"]
+                print(f"kernel build set: {len(kernelBuildSet)}")
                 if name in kernelBuildSet:
                     if "BuildKernel" in s:
-                        del s["BuildKernel"]
+                        s.pop("BuildKernel")
                         print(f"  - removing `BuildKernel`: (file: {file.relative_to(logicPath)}, index: {s['SolutionIndex']})")
                 else:
                     if "BuildKernel" not in s:
@@ -140,12 +135,13 @@ def _runChecks(
     """
     keep, total = 0, 0
     numBuildKernels, numNames, names = 0, 0, []
-    for file in files:
+    for i, file in enumerate(files):
         if "Experimental" in file.parts:
             return keep, total, numBuildKernels, names, numNames
 
-        yaml = _readFile(file, logicPath, action)
+        yaml = _readFile(file, action)
         if yaml:
+            print1(f"[file: {i+1:02}/{len(files):02}, pid: {int(os.getpid() % 1e3)}] {file.relative_to(logicPath)}")
             for s in yaml[5]:  # Solutions are the 5th index
                 s, isCustom = handleCustomKernel(s, isaInfoMap)
                 if action.CheckOnlyCustomKernels and not isCustom:
@@ -190,18 +186,12 @@ def _setup():
     jobs = int(args.jobs)
     cxxCompiler = validateToolchain(args.cxx_compiler)
     logicPath = Path(args.logic_path)
-
-    # Setup checks and updates
-    if not any([args.check_all, args.check_only_custom_kernels, args.update_build_kernels]):
-        print1("No actions specified. Exiting.")
-        exit(1)
+    files = _getLogicFiles(logicPath)
     action = Action(
         CheckOnlyCustomKernels=args.check_only_custom_kernels,
         CheckAll=args.check_all,
         UpdateBuildKernels=args.update_build_kernels,
     )
-
-    files = _getLogicFiles(logicPath)
 
     # Retrieve ISA info and globals
     isaInfoMap = makeIsaInfoMap(SUPPORTED_ISA, str(cxxCompiler))
