@@ -121,6 +121,7 @@ def _check(
         [
             _validateMatrixInstruction(file.relative_to(logicPath), s, isaInfoMap),
             _validateWorkGroup(file.relative_to(logicPath), s),
+            _validateKernelName(file.relative_to(logicPath), s),
         ]
     ):
         results.keep += 1
@@ -233,7 +234,7 @@ def main():
 
         keep, total = 0, 0
         numBuildKernels, numNames, names = 0, 0, []
-        for result in ParallelMap2(fn, batches, multiArg=False, procs=jobs, return_as="list")
+        for result in ParallelMap2(fn, batches, multiArg=False, procs=jobs, return_as="list"):
             keep += result.keep
             total += result.total
             numBuildKernels += result.numBuildKernels

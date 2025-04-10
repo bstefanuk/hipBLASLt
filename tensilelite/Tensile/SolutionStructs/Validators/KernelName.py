@@ -22,10 +22,19 @@
 #
 ################################################################################
 
-from Tensile.Common.Utilities import elineno
+from Tensile.Common.Utilities import elineno, print1
+from Tensile.Common.RequiredParameters import getRequiredParametersMin
+from Tensile.SolutionStructs.Naming import getNameMin, getKernelFileBase
+from Tensile.SolutionStructs.Problem import ProblemType
 
 
 def validateKernelName(sol: dict) -> bool:
     name = sol.get("KernelNameMin")
     assert name, f"Solution doesn't have key 'KernelNameMin': {elineno()}"
+
+    sol["ProblemType"] = ProblemType(sol["ProblemType"], False)
+    rp = getRequiredParametersMin()
+    # calculatedName = getNameMin(sol, rp, False)
+    calculatedName = getKernelFileBase(False, False, rp, None, sol)
+    assert name == calculatedName, f"'KernelNameMin' doesn't match calculated name:\n   name: {name}\n   calc: {calculatedName}\n   {elineno()}"
     return True
