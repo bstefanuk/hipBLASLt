@@ -27,7 +27,12 @@ from typing import Dict, Optional
 
 from Tensile.Common import IsaVersion, IsaInfo, print1, print2, elineno
 from Tensile.Common.Architectures import SUPPORTED_ISA
-from Tensile.Common.ValidParameters import makeValidMatrixInstructions, makeValidMFMA, makeValidSMFMA, makeValidWMMA
+from Tensile.Common.ValidParameters import (
+    makeValidMatrixInstructions,
+    makeValidMFMA,
+    makeValidSMFMA,
+    makeValidWMMA,
+)
 from Tensile.TensileInstructions.DataType import DataType
 
 from ..Utilities import reject
@@ -78,15 +83,15 @@ def matrixInstructionToMIParameters(
     result["MatrixInstK"] = mi[2]
     result["MatrixInstB"] = mi[3]
 
-    waves = mi[7]* mi[8]
+    waves = mi[7] * mi[8]
     wg0 = mi[4] * mi[0] * mi[7]
 
     result["WavefrontSize"] = wavefrontSize
     if workGroup:
-      # NOTE: Typically, the WorkGroup is set to the default [16, 16, 1] for a
-      # length-9 matrix instruction. However, some custom kernel solutions used
-      # during benchmarking don't have WorkGroup set at all.
-      result["WorkGroup"] = [wg0, waves*wavefrontSize//wg0, workGroup[2]]
+        # NOTE: Typically, the WorkGroup is set to the default [16, 16, 1] for a
+        # length-9 matrix instruction. However, some custom kernel solutions used
+        # during benchmarking don't have WorkGroup set at all.
+        result["WorkGroup"] = [wg0, waves * wavefrontSize // wg0, workGroup[2]]
     result["ThreadTile"] = [1, 1]  # dummy
 
     isSparse = problemType.get("Sparse", 0)
@@ -215,7 +220,6 @@ def validateMIParameters(
 
     if not miEnabled:
         return False
-
 
     wfsize = solution["WavefrontSize"]
     waves = solution["MIWaveGroup"][0] * solution["MIWaveGroup"][1]
