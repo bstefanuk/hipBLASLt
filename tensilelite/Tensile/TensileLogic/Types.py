@@ -22,26 +22,31 @@
 #
 ################################################################################
 
-"""
-ValidWorkGroup
----
-Dimensions of the workgroup which will operate on a tile and share lds
-Example: ( wg0 x wg1 x LocalSplitU )
-"""
-
-from pathlib import Path
-
-from Tensile.Common import elineno
-from Tensile.SolutionStructs.Validators.WorkGroup import validateWorkGroup
+from dataclasses import dataclass, field
+from typing import List, NamedTuple
 
 
-def _validateWorkGroup(solution: dict, filepath: Path):
-    try:
-        validateWorkGroup(solution)
-        assert solution["Valid"], f"Solution was rejected: {elineno()}"
-        return True
-    except AssertionError as e:
-        print(
-            f"Error: Validation failed: {e} (file: {filepath}, index: {solution['SolutionIndex']})"
-        )
-        return False
+class Action(NamedTuple):
+    UpdateBuildKernels: bool
+    CheckOnlyCustomKernels: bool
+    CheckAll: bool
+    UpdateKernelNames: bool
+
+
+@dataclass
+class CheckResults:
+    keep: int = 0
+    total: int = 0
+    numBuildKernels: int = 0
+    numNames: int = 0
+    names: List[str] = field(default_factory=list)
+
+
+@dataclass
+class UpdateBuildKernelResults:
+    kernelBuildSet: set = field(default_factory=set)
+
+
+@dataclass
+class UpdateKernelNameResults:
+    kernelNameSet: set = field(default_factory=set)

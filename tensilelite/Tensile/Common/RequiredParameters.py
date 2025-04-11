@@ -26,12 +26,12 @@ from .ValidParameters import validParameters
 
 
 @lru_cache
-def getRequiredParametersFull() -> set:
+def getRequiredParametersFull() -> frozenset:
     return frozenset(validParameters.keys())
 
 
 @lru_cache
-def getRequiredParametersMin() -> set:
+def getRequiredParametersMin() -> frozenset:
     return frozenset({
         '1LDSBuffer',
         'ActivationFuncCall',

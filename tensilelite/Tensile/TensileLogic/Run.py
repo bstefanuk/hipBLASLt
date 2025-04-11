@@ -22,127 +22,190 @@
 #
 ################################################################################
 
-
+import os
 import functools
 
 from pathlib import Path
-from typing import List, Dict, NamedTuple
+from typing import List, Dict, Callable
 
-from Tensile.Common import ParallelMap2, print1, IsaVersion, IsaInfo, setVerbosity
-from Tensile.Common.Architectures import SUPPORTED_ISA
-from Tensile.Common.Capabilities import makeIsaInfoMap
-from Tensile.Common.GlobalParameters import assignGlobalParameters
-from Tensile.LibraryIO import readYAML
-from Tensile.Toolchain.Validators import validateToolchain
+from Tensile.Common import ParallelMap2, print1, IsaVersion, IsaInfo, elineno
+from Tensile.LibraryIO import writeYAML
+from Tensile.SolutionStructs.Validators.MatrixInstruction import validateMIParameters
+from Tensile.SolutionStructs.Validators.WorkGroup import validateWorkGroup
+from Tensile.SolutionStructs.Validators.KernelName import validateKernelName
+from Tensile.SolutionStructs.Naming import getKernelNameMin
+from Tensile.SolutionStructs.Problem import ProblemType
 
-from .ParseArguments import parseArguments
-from .ValidMatrixInstruction import _validateMatrixInstruction
-from .ValidWorkGroup import _validateWorkGroup
-from .HandleCustomKernel import handleCustomKernel, hasCustomKernel
-
-
-class Check(NamedTuple):
-    OnlyCustomKernels: bool
-    All: bool
+from .HandleCustomKernel import handleCustomKernel
+from .Helpers import readFile, setupApp
+from .Types import Action, CheckResults, UpdateBuildKernelResults, UpdateKernelNameResults
 
 
-def _runChecks(
-    logicPath: Path, isaInfoMap: Dict[IsaVersion, IsaInfo], check: Check, files: List[Path]
+NAME_KEY: str = "KernelNameMin"
+INDX_KEY: str = "SolutionIndex"
+BUILDK_KEY: str = "BuildKernel"
+
+
+def _validatorFactory(func: Callable) -> Callable:
+    def validator(filepath: Path, sol: dict, *args):
+        try:
+            ret = func(sol, *args)
+            assert sol["Valid"], f"Solution was rejected: {elineno()}"
+            return ret
+        except AssertionError as e:
+            print(f"Error: Validation failed: {e} (file: {filepath}, index: {sol[INDX_KEY]})")
+            return False
+
+    return validator
+
+
+_validateMatrixInstruction = _validatorFactory(validateMIParameters)
+_validateWorkGroup = _validatorFactory(validateWorkGroup)
+_validateKernelName = _validatorFactory(validateKernelName)
+
+
+def _check(
+    s: dict,
+    file: Path,
+    logicPath: Path,
+    results: CheckResults,
+    isaInfoMap: Dict[IsaVersion, IsaInfo],
+    action: Action,
 ):
-    """
-    Run checks on the given logic files.
+    s, isCustom = handleCustomKernel(s, isaInfoMap)
+    if action.CheckOnlyCustomKernels and not isCustom:
+        return results
 
-    Args:
-        logicPath: Path to a directory containing logic files or to an individual logic file.
-        isaInfoMap: Map of IsaVersion to IsaInfo.
-        check: Object containing flags for checking.
-        files: List of logic files to check.
+    # Rejection checks
+    if all(
+        [
+            _validateMatrixInstruction(file.relative_to(logicPath), s, isaInfoMap),
+            _validateWorkGroup(file.relative_to(logicPath), s),
+            _validateKernelName(file.relative_to(logicPath), s),
+        ]
+    ):
+        results.keep += 1
+    results.total += 1
 
-    Returns:
-        Tuple of (keep, total) where keep is the number of unrejected solutions and
-        total is the total number of solutions parsed.
-    """
-    keep, total = 0, 0
-    for file in files:
-        if "Experimental" in file.parts:
-            return keep, total
-
-        solutions = []
-        if check.OnlyCustomKernels and hasCustomKernel(file):
-            print1(f">> {file.relative_to(logicPath)}")
-            solutions = readYAML(file)[5]  # Solutions are the 5th index
-        elif check.All:
-            print1(f">> {file.relative_to(logicPath)}")
-            solutions = readYAML(file)[5]  # Solutions are the 5th index
-
-        for s in solutions:
-            s, isCustom = handleCustomKernel(s, isaInfoMap)
-            if check.OnlyCustomKernels and not isCustom:
-                continue
-
-            if all(
-                [
-                    _validateMatrixInstruction(s, isaInfoMap, file.relative_to(logicPath)),
-                    _validateWorkGroup(s, file.relative_to(logicPath)),
-                ]
-            ):
-                keep += 1
-            total += 1
-
-    return keep, total
+    # Uniqueness checks
+    results.numBuildKernels += int(s.get(BUILDK_KEY, False))
+    if _validateKernelName(file.relative_to(logicPath), s):
+        results.names.append(s[NAME_KEY])
+        results.numNames += 1
 
 
-def _setup():
-    args = parseArguments()
-
-    setVerbosity(args.Verbose)
-    jobs = int(args.Jobs)
-    cxxCompiler = validateToolchain(args.CxxCompiler)
-    logicPath = Path(args.LogicPath)
-
-    if not any([args.CheckAll, args.CheckOnlyCustomKernels]):
-        print1("No checks specified. Exiting.")
-        exit(0)
-    check = Check(
-        OnlyCustomKernels=args.CheckOnlyCustomKernels,
-        All=args.CheckAll,
-    )
-
-    if logicPath.is_file() and logicPath.suffix == ".yaml":
-        files = [logicPath]
+def _updateBuildKernel(s: dict, file: Path, logicPath: Path, results: UpdateBuildKernelResults):
+    f = file.relative_to(logicPath)
+    idx = s[INDX_KEY]
+    name = s[NAME_KEY]
+    if name in results.kernelBuildSet:
+        if BUILDK_KEY in s:
+            s.pop(BUILDK_KEY)  # Remove BuildKernel if it exists
+            print(f"  - removing `{BUILDK_KEY}`: (file: {f}, index: {idx})")
     else:
-        pattern = "**/*.yaml"
-        files = list(logicPath.glob(pattern))
-    if len(files) == 0:
-        print1(f"No files found in {logicPath}")
-        exit(1)
-    print1(f"Found {len(files)} files")
+        if BUILDK_KEY not in s:
+            s[BUILDK_KEY] = True
+            print(f"  + adding `{BUILDK_KEY}`: (file: {f}, index: {idx})")
+        elif not s[BUILDK_KEY]:
+            raise ValueError(
+                f"`{BUILDK_KEY}`: false` is not permitted, remove `{BUILDK_KEY}` instead"
+            )
+        results.kernelBuildSet.add(name)
 
-    isaInfoMap = makeIsaInfoMap(SUPPORTED_ISA, str(cxxCompiler))
-    assignGlobalParameters({"PrintSolutionRejectionReason": True}, isaInfoMap)
 
-    return jobs, isaInfoMap, logicPath, files, check
+def _updateKernelName(s: dict, file: Path, logicPath: Path, results: UpdateKernelNameResults):
+    f = file.relative_to(logicPath)
+    idx = s[INDX_KEY]
+    name = s.get(NAME_KEY)
+
+    savedProblemType = s["ProblemType"]
+    s["ProblemType"] = ProblemType(s["ProblemType"], False)
+
+    calculatedName = getKernelNameMin(s, False)
+    if not name or name != calculatedName:
+        s[NAME_KEY] = calculatedName
+        print(f"  + updating `{NAME_KEY}`: (file: {f}, index: {idx})")
+        results.kernelNameSet.add(calculatedName)
+
+    s["ProblemType"] = savedProblemType
+
+
+def _processFilesFactory(logicPath: Path, action: Action) -> Callable:
+
+    if action.UpdateKernelNames:
+        results = UpdateKernelNameResults()
+        fn = _updateKernelName
+        isUpdate = True
+    elif action.UpdateBuildKernels:
+        results = UpdateBuildKernelResults()
+        fn = _updateBuildKernel
+        isUpdate = True
+    elif action.CheckOnlyCustomKernels or action.CheckAll:
+        results = CheckResults()
+        fn = _check
+        isUpdate = False
+    else:
+        raise ValueError(f"Action {action} is not implemented.")
+
+    def processFiles(files: List[Path], **kwargs):
+        for i, file in enumerate(files):
+            yaml = readFile(file, action)
+            if yaml:
+                info = f"[file: {i+1:02}/{len(files):02}, pid: {int(os.getpid() % 1e3):03}]"
+                print1(f"{info} {file.relative_to(logicPath)}")
+
+                for s in yaml[5]:  # Solutions are the 5th index
+                    fn(s, file, logicPath, results, **kwargs)
+
+                if isUpdate:
+                    writeYAML(file, yaml, explicit_start=False, explicit_end=False)
+        return results
+
+    return processFiles
 
 
 def main():
-    jobs, isaInfoMap, logicPath, files, check = _setup()
+    jobs, isaInfoMap, logicPath, files, action = setupApp()
 
+    fn = _processFilesFactory(logicPath, action)
     batchSize = len(files) // min(len(files), jobs)
     batches = (files[i : i + batchSize] for i in range(0, len(files), batchSize))
 
-    fn = functools.partial(_runChecks, logicPath, isaInfoMap, check)
-    keep, total = 0, 0
+    if action.UpdateBuildKernels:
+        fn(files)  # Must be syncronous for proper uniqueness evaluation of kernel names
 
-    results = ParallelMap2(fn, batches, multiArg=False, procs=jobs, return_as="list")
+    if action.UpdateKernelNames:
+        ParallelMap2(fn, batches, multiArg=False, procs=jobs, return_as="list")
 
-    for _keep, _total in results:
-        keep += _keep
-        total += _total
+    if any([action.CheckOnlyCustomKernels, action.CheckAll]):
+        fn = functools.partial(fn, isaInfoMap=isaInfoMap, action=action)
+        batchSize = len(files) // min(len(files), jobs)
+        batches = (files[i : i + batchSize] for i in range(0, len(files), batchSize))
 
-    rejects = total - keep
-    print(f"Total  {total} solutions")
-    print(f"Keep   {keep} solutions")
-    print(f"Reject {rejects} solutions")
+        keep, total = 0, 0
+        numBuildKernels, numNames, names = 0, 0, []
+        for result in ParallelMap2(fn, batches, multiArg=False, procs=jobs, return_as="list"):
+            keep += result.keep
+            total += result.total
+            numBuildKernels += result.numBuildKernels
+            numNames += result.numNames
+            names.extend(result.names)
 
-    if rejects > 0:
-        exit(1)
+        # Post processing
+        rejects = total - keep
+        print("------------------------------------------")
+        print(f"Total                  {total} solutions")
+        print(f"Keep                   {keep} solutions")
+        print(f"Reject                 {rejects} solution(s)")
+        print("SUCCESS" if rejects == 0 else "FAILURE")
+
+        buildkDiff = abs(numBuildKernels - len(set(names)))
+        print("------------------------------------------")
+        print(f"Num names (batched)    {numNames}")
+        print(f"Unique names           {len(set(names))}")
+        print(f"With `{BUILDK_KEY}`     {numBuildKernels}")
+        print(f"Difference             {buildkDiff}")
+        print("SUCCESS" if buildkDiff == 0 else "FAILURE")
+
+        if rejects > 0 or buildkDiff > 0:
+            exit(1)
